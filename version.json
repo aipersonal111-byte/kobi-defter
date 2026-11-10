@@ -1,1 +1,1 @@
-{"surum":"3.0","tarih":"2026-11-10","notlar":["Çevrimiçi sürüm: internet olmadan da çalışır, yeni sürümü kendisi indirir","Güncellemeden önce otomatik yedek","İsteğe bağlı Google Drive senkronu"]}
+{"surum":"3.1","tarih":"2026-11-10","notlar":["Yedek klasörü seçiliyse her kayıttan ~15 sn sonra otomatik yedek (kobi-defter-son.json)","Günlük tarihli yedeklerden son 30'u tutulur"]}

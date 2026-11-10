@@ -240,7 +240,7 @@ gorunumUygula();
  fonksiyon ekleyin (data-act="eylemAdı"). Kayıtlar mutlaka fisYaz() ile
  yevmiye fişi üretir; böylece mizan/bilanço/gelir tablosu otomatik güncellenir.
  ===================================================================== */
-const APP_VER='3.0';
+const APP_VER='3.1';
 const DB_SEMA=6; /* veri şeması: yeni alan/yapı eklenince artırın; uyumla() eski veriyi yükseltir */
 let SALT=false;
 let S=null;
@@ -280,7 +280,7 @@ async function yazDisk(){
   try{await kvSet('state',S);ok=true}catch(e){}
   if(!ok){try{localStorage.setItem(LS_KEY,JSON.stringify(S));ok=true}catch(e){toast('Kayıt başarısız! Hemen yedek alın.','err')}}
   const el=$('#kayitDurum');if(el)el.textContent=ok?'kaydedildi'+driveEk():'';
-  otomatikYedek();driveKirli();
+  otomatikYedek();klasorKirli();driveKirli();
 }
 
 /* ---------------- Varsayılan veri ---------------- */
@@ -1953,9 +1953,21 @@ const yedekAd=()=>'kobi-defter-yedek-'+bugun()+'-'+pad(new Date().getHours())+pa
 ACT.yedekAl=()=>{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([yedekJSON()],{type:'application/json'}));a.download=yedekAd();document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},500);logYaz('yedek','Yedek dosyası indirildi');S.ayar.sonYedek=new Date().toISOString();kaydet();toast('Yedek dosyası indirildi. Güvenli bir yerde (Drive, USB) saklayın.');setTimeout(render,50)};
 ACT.yedekYukle=()=>{const i=document.createElement('input');i.type='file';i.accept='.json,application/json';i.onchange=()=>{const fl=i.files[0];if(!fl)return;fl.text().then(t=>{try{const j=JSON.parse(t),v=j.veri||j;if(!v.hesaplar||!v.fisler)throw new Error('Bu dosya bir Kobi Defter yedeği değil');if((v.sema||1)>DB_SEMA)throw new Error('Bu yedek daha yeni bir program sürümüyle alınmış (şema '+v.sema+', bu dosya '+DB_SEMA+'). Önce güncel kobi-defter.html dosyasını kullanın.');if(!confirm('Mevcut tüm veriler silinip yedekteki veriler yüklenecek. Devam edilsin mi?'))return;const _e=S;S=uyumla(v);if(_e&&_e.girisAktif)girisKorun(_e);S.sema=DB_SEMA;S.appVer=APP_VER;SALT=false;_bm=null;try{demirbasHazirla();demirbasSenk()}catch(e2){console.error(e2)}logYaz('yedek','Yedek dosyasından veri yüklendi ('+fl.name+')');kaydet();toast('Yedek yüklendi');location.hash='#/panel';render()}catch(e){toast(e.message,'err')}})};i.click()};
 ACT.klasorSec=async()=>{if(!window.showDirectoryPicker)return toast('Bu özellik Chrome / Edge tarayıcılarında çalışır. Diğer tarayıcılarda "Yedek indir" kullanın.','err');try{const h=await showDirectoryPicker({mode:'readwrite'});await kvSet('dirHandle',h);S.ayar.otoYedek=true;kaydet();toast('Yedek klasörü bağlandı: '+h.name);render()}catch(e){if(e.name!=='AbortError')toast('Klasör seçilemedi: '+e.message,'err')}};
-async function klasoreYedekle(sessiz){try{const h=await kvGet('dirHandle');if(!h)return false;let p=await h.queryPermission({mode:'readwrite'});if(p!=='granted'){if(sessiz)return false;p=await h.requestPermission({mode:'readwrite'});if(p!=='granted')return false}const fh=await h.getFileHandle('kobi-defter-yedek-'+bugun()+'.json',{create:true});const w=await fh.createWritable();await w.write(yedekJSON());await w.close();S.ayar.sonYedek=new Date().toISOString();S.ayar.sonOtoYedek=bugun();return true}catch(e){return false}}
-ACT.klasoreYedekle=async()=>{const ok=await klasoreYedekle(false);if(ok){logYaz('yedek','Klasöre yedeklendi');kaydet();toast('Klasöre yedeklendi');render()}else toast('Klasöre yazılamadı. Önce klasörü seçin ve izin verin.','err')};
+async function klasoreYedekle(sessiz){try{const h=await kvGet('dirHandle');if(!h)return false;let p=await h.queryPermission({mode:'readwrite'});if(p!=='granted'){if(sessiz)return false;p=await h.requestPermission({mode:'readwrite'});if(p!=='granted')return false}const fh=await h.getFileHandle('kobi-defter-yedek-'+bugun()+'.json',{create:true});const w=await fh.createWritable();await w.write(yedekJSON());await w.close();S.ayar.sonYedek=new Date().toISOString();S.ayar.sonOtoYedek=bugun();klasorBudama(h);return true}catch(e){return false}}
+ACT.klasoreYedekle=async()=>{const ok=await klasoreYedekle(false);if(ok){KLS.durum='';logYaz('yedek','Klasöre yedeklendi');kaydet();toast('Klasöre yedeklendi');render()}else toast('Klasöre yazılamadı. Önce klasörü seçin ve izin verin.','err')};
 let _oyBusy=false;
+const KLS={t:null,busy:false,durum:'',zaman:''};
+const KLS_SAYI=30;
+async function klasorBudama(h){try{const a=[];for await(const [ad] of h.entries())if(/^kobi-defter-yedek-\d{4}-\d{2}-\d{2}\.json$/.test(ad))a.push(ad);a.sort();while(a.length>KLS_SAYI)await h.removeEntry(a.shift())}catch(e){}}
+async function klasorSurekli(){if(SALT||!S||!S.ayar.otoYedek||KLS.busy)return;KLS.busy=true;
+  try{const h=await kvGet('dirHandle');if(!h){KLS.durum='klasör seçilmedi';return}
+    if(await h.queryPermission({mode:'readwrite'})!=='granted'){KLS.durum='izin gerekli (Ayarlar › Yedek & Veri › "Klasöre şimdi yedekle")';klasorDurumYaz();return}
+    const fh=await h.getFileHandle('kobi-defter-son.json',{create:true}),w=await fh.createWritable();await w.write(yedekJSON());await w.close();
+    S.ayar.sonYedek=new Date().toISOString();KLS.zaman=new Date().toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'});KLS.durum='';klasorDurumYaz()}
+  catch(e){KLS.durum='yazılamadı: '+e.message;klasorDurumYaz()}finally{KLS.busy=false}}
+function klasorKirli(){if(SALT||!S||!S.ayar.otoYedek)return;clearTimeout(KLS.t);KLS.t=setTimeout(klasorSurekli,15000)}
+function klasorDurumYaz(){const el=$('#klsDurum');if(el)el.innerHTML=klasorDurumHtml()}
+function klasorDurumHtml(){if(!S.ayar.otoYedek)return'';return KLS.durum?'<span class="neg">Klasör yedeği: '+esc(KLS.durum)+'</span>':(KLS.zaman?'Klasör yedeği güncel · son '+KLS.zaman:'Klasör yedeği açık: her kayıttan ~15 sn sonra güncellenir')}
 async function otomatikYedek(){if(SALT||!S||!S.ayar.otoYedek||_oyBusy||S.ayar.sonOtoYedek===bugun())return;_oyBusy=true;if(await klasoreYedekle(true)){S.ayar.sonOtoYedek=bugun();try{await kvSet('state',S)}catch(e){}}_oyBusy=false}
 ACT.demo=()=>{if(S.fisler.length&&!confirm('Mevcut veriler silinip örnek veri yüklenecek. Devam?'))return;ACT.kapat();_dAtla=true;if(tx(()=>demoYukle(),true)){logYaz('veri','Örnek veri yüklendi (mevcut veriler silindi)');kaydet()}_dAtla=false;location.hash='#/panel';render();toast('Örnek veri yüklendi')};
 ACT.sifirla=()=>{if(!confirm('TÜM VERİLER SİLİNECEK. Önce yedek aldınız mı? Devam edilsin mi?'))return;if(!confirm('Bu işlem geri alınamaz. Emin misiniz?'))return;{const _e=S;S=yeniDurum();girisKorun(_e)}ilkKurulum();S.ayar.kuruldu=true;logYaz('veri','TÜM VERİLER SIFIRLANDI');kaydet();location.hash='#/panel';render()};
@@ -1987,7 +1999,7 @@ function rAyarlar(){
   kalem:`<div class="grid g2"><div class="card"><div class="bar"><h3 style="margin:0">Gelir kalemleri</h3><span class="sp"></span><button class="btn sm pri" data-act="kalemYeni" data-t="gelir">+ Ekle</button></div>${kt('gelir')}</div><div class="card"><div class="bar"><h3 style="margin:0">Gider kalemleri</h3><span class="sp"></span><button class="btn sm pri" data-act="kalemYeni" data-t="gider">+ Ekle</button></div>${kt('gider')}</div></div>`,
   grup:`${grupTablo()}`,
   bakim:bakimHTML(),
-  yedek:`<div class="grid g2" style="align-items:start"><div class="card"><div class="bar" style="margin-bottom:6px"><h3 style="margin:0">Yedekleme</h3><span class="sp"></span>${bilgi(`Verileriniz yalnızca bu tarayıcıda saklanır. Yedek dosyasını Drive / OneDrive'a atın ya da Drive masaüstü klasörünü "otomatik yedek klasörü" seçin (Chrome/Edge). Tarayıcı verisini temizlemeden önce yedek alın.`)}</div><p style="margin-top:0">${gun===null?'<span class="neg"><b>Henüz yedek alınmadı.</b></span>':`Son yedek: <b>${tTR(A.sonYedek.slice(0,10))}</b> (${gun} gün önce)`}</p><div class="bar"><button class="btn pri" data-act="yedekAl">⬇ Yedek indir (.json)</button><button class="btn" data-act="yedekYukle">⬆ Yedekten geri yükle</button></div><div class="bar"><button class="btn" data-act="klasorSec">📁 Otomatik yedek klasörü seç</button><button class="btn" data-act="klasoreYedekle">Klasöre şimdi yedekle</button></div></div>
+  yedek:`<div class="grid g2" style="align-items:start"><div class="card"><div class="bar" style="margin-bottom:6px"><h3 style="margin:0">Yedekleme</h3><span class="sp"></span>${bilgi(`Verileriniz yalnızca bu tarayıcıda saklanır. Yedek dosyasını Drive / OneDrive'a atın ya da Drive masaüstü klasörünü "otomatik yedek klasörü" seçin (Chrome/Edge): seçince her kayıttan kısa süre sonra "kobi-defter-son.json" güncellenir, günde bir de tarihli kopya alınır (son 30 tutulur). Tarayıcı verisini temizlemeden önce yedek alın.`)}</div><p style="margin-top:0">${gun===null?'<span class="neg"><b>Henüz yedek alınmadı.</b></span>':`Son yedek: <b>${tTR(A.sonYedek.slice(0,10))}</b> (${gun} gün önce)`}</p><div class="bar"><button class="btn pri" data-act="yedekAl">⬇ Yedek indir (.json)</button><button class="btn" data-act="yedekYukle">⬆ Yedekten geri yükle</button></div><div class="bar"><button class="btn" data-act="klasorSec">📁 Otomatik yedek klasörü seç</button><button class="btn" data-act="klasoreYedekle">Klasöre şimdi yedekle</button></div><p class="mut" id="klsDurum" style="margin:8px 0 0">${klasorDurumHtml()}</p></div>
 <div class="card"><h3>Veri</h3><div class="bar"><button class="btn" data-act="demo">Örnek veri yükle</button><button class="btn red" data-act="sifirla">Tüm verileri sil / sıfırla</button></div><p class="mut" style="margin-bottom:0">Kobi Defter v${APP_VER} ${bilgi(`Kobi Defter v${APP_VER} · Kayıtlar çift taraflı muhasebe (yevmiye) mantığıyla tutulur; resmi defter ve beyanname yerine geçmez, mali müşavirinize aktarmak için raporları kullanın.`)}</p></div>${onlineKartlar()}</div>`};
   return nav+(ic[T]||ic.firma);
 }
