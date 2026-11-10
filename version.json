@@ -1,1 +1,1 @@
-{"surum":"3.1","tarih":"2026-11-10","notlar":["Yedek klasörü seçiliyse her kayıttan ~15 sn sonra otomatik yedek (kobi-defter-son.json)","Günlük tarihli yedeklerden son 30'u tutulur"]}
+{"surum":"3.2","tarih":"2026-11-10","notlar":["Personel ödemesi yenilendi: liste + durum (Ödenmedi / Kısmen / Ödendi) + Öde penceresi","SGK / Vergi ödemesi: ödenen borç 'Ödendi' görünür, tekrar ödenemez","Çoklu seçimde tek pencerede ödeme; ödemeyi birkaç hesaba bölme"]}

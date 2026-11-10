@@ -240,7 +240,7 @@ gorunumUygula();
  fonksiyon ekleyin (data-act="eylemAdı"). Kayıtlar mutlaka fisYaz() ile
  yevmiye fişi üretir; böylece mizan/bilanço/gelir tablosu otomatik güncellenir.
  ===================================================================== */
-const APP_VER='3.1';
+const APP_VER='3.2';
 const DB_SEMA=6; /* veri şeması: yeni alan/yapı eklenince artırın; uyumla() eski veriyi yükseltir */
 let SALT=false;
 let S=null;
@@ -1308,55 +1308,95 @@ function rTahak(){
 function rOdeme(){
   const F=UI.f.personel,alt=F.alt==='sgk'?'sgk':'p';
   return `<div class="seg"><a class="${alt==='p'?'on':''}" data-act="netOde">Personel ödemesi</a><a class="${alt==='sgk'?'on':''}" data-act="vergiOde">SGK / Vergi ödemesi</a></div>`+pBankaNot()+(alt==='sgk'?rOdemeSgk():rOdemeP())}
-const odAlt=(tutarEtiket)=>`<div class="bar" style="margin-top:10px"><label class="f" style="margin:0"><span>Ödeme tarihi</span><input type="date" class="od-tarih" value="${bugun()}"></label><span class="sp"></span><span>Seçilen toplam: <b class="od-top">0,00</b> ₺</span>`;
-function rOdemeP(){
-  const F=UI.f.personel,pf=F.pf||'',vk=pVarKasa(),R=[];
-  const avs=S.personel.filter(p=>(!pf||p.id===pf)&&avansBak(p.id)>0.004&&personelAcik(p.id).length),avNot=avs.length?`<div class="note">${avs.map(p=>`<div>${esc(p.ad)}: <b>${fmt(avansBak(p.id))} ₺</b> mahsup edilmemiş avans var <button class="btn sm pri" data-act="avansMahsup" data-p="${p.id}">Avansı mahsup et</button></div>`).join('')}<div class="mut">Mahsup, avansı en eski açık maaş/tahakkuktan başlayarak düşer; kalan tutarı aşağıdan ödersiniz.</div></div>`:'';
-  S.personel.filter(p=>!pf||p.id===pf).sort((a,b)=>a.ad.localeCompare(b.ad,'tr')).forEach(p=>personelAcik(p.id).forEach(x=>R.push(Object.assign({p},x))));
-  const satir=x=>{const n=x.tur==='net'?S.netTahakkuklar.find(t=>t.id===x.id):null,acik=x.tur==='bordro'?'Resmi maaş':'Diğer: '+n.satirlar.map(y=>y.ad||'Kalem').join(', ');
-    return[{h:`<input type="checkbox" class="od-s">`},{h:pLink(x.p)},{h:(x.tur==='bordro'?badge('Resmi','blu'):badge('Bordro dışı','amb'))+' '+esc(acik)},AYLAR[+x.donem.slice(5,7)-1]+' '+x.donem.slice(0,4),x.k,{h:`<input type="number" class="od-t" step="0.01" min="0" value="${x.k}" style="width:110px">`},{h:pKasaSel('od-k',vk)+' <button type="button" class="btn sm" data-act="odParca" title="Aynı kalemi birkaç ödemeye böl">+ parça</button>'}]};
-  const rows=R.map(satir);
-  const tb=tblA(['','Personel','Kalem','Dönem','Kalan','Ödenecek tutar','Ödeme türü / hesap'],rows).replace(/<tbody>([\s\S]*)<\/tbody>/,(m,b)=>{let i=0;return'<tbody>'+b.replace(/<tr class="">/g,()=>{const x=R[i++];return`<tr data-p="${x.p.id}" data-t="${x.tur}" data-id="${x.id}" data-k="${x.k}" data-d="${esc(x.donem+(x.tur==='net'?' (diğer tahakkuk)':''))}">`})+'</tbody>'});
-  return`<div data-odeme="p">${avNot}<div class="bar"><select data-f="personel.pf"><option value="">Tüm personel</option>${S.personel.filter(p=>p.aktif||personelAcik(p.id).length).map(p=>`<option value="${p.id}" ${p.id===pf?'selected':''}>${esc(p.ad)}</option>`).join('')}</select><label><input type="checkbox" class="od-all"> Tümünü seç</label><span class="sp"></span><label class="f" style="margin:0;flex-direction:row;align-items:center;gap:6px"><span>Tüm satırlar için hesap:</span><select class="od-hepsi"><option value="">— seçin —</option>${kasaOpts(['kasa','banka']).map(o=>`<option value="${esc(o.v)}">${esc(o.t)}</option>`).join('')}</select></label></div>
-  ${R.length?tb:'<div class="card mut">Ödenecek personel tahakkuku yok.</div>'}
-  ${R.length?`${odAlt()}<button class="btn pri" data-act="pOde">Seçilenleri öde</button></div><p class="mut">Satırları işaretleyin (tutar yazınca satır otomatik işaretlenir). Kısmi ödeme için tutarı azaltın; bir kalemi birkaç ödemeye bölmek için satırdaki <b>+ parça</b>yı kullanın (her parçaya ayrı hesap seçebilirsiniz). Yanlış girilen ödemeleri Ekstre'den düzeltebilirsiniz.</p>`:''}</div>`}
 const ekSecenek=()=>[...S.hesaplar].filter(h=>h.grup==='gider'&&!baslikMi(h.kod)&&!altlar(h.kod).length).sort((a,b)=>cmpKod(a.kod,b.kod)).map(h=>({v:h.kod,t:h.kod+' '+h.ad}));
 const ekVarsayilan=()=>hesapBul('770.15')?'770.15':(ekSecenek()[0]||{}).v;
 const optHTML=(L,v)=>L.map(o=>`<option value="${esc(o.v)}" ${String(o.v)===String(v)?'selected':''}>${esc(o.t)}</option>`).join('');
+/* ---- Ödeme ekranları (v3.2): liste + durum + "Öde" penceresi ---- */
+const odDurum=(tut,od)=>{const k=r2(tut-od);return k<=0.004?badge('Ödendi','grn'):od>0.004?badge('Kısmen ödendi','amb'):badge('Ödenmedi','red')};
+function odemeModal(o){
+  const tek=o.items.length===1,x0=o.items[0],topKal=r2(o.items.reduce((t,x)=>t+x.kal,0)),vk=pVarKasa();
+  const gov=tek?`<div class="note" style="margin-top:0"><b>${esc(x0.ad)}</b> · ${esc(x0.alt)}<br>Kalan borç: <b>${fmt(x0.kal)} ₺</b></div>
+    <div id="olSatirlar"><div class="ol fg"><label class="f"><span>Ödeme hesabı (kasa / banka)</span>${pKasaSel('ol-k',vk)}</label><label class="f"><span>Tutar</span><input type="number" step="0.01" min="0" class="ol-t" value="${x0.kal}"></label></div></div>
+    <div class="bar" style="margin:0 0 6px"><button type="button" class="btn sm" data-act="olEkle">+ Başka hesaptan da öde</button><span class="mut" style="font-size:12px">Kısmi ödeme için tutarı azaltın.</span></div>`
+   :`<div class="fg"><label class="f"><span>Ödeme hesabı (kasa / banka)</span>${pKasaSel('ol-k',vk)}</label></div>${tblA(['Kalem','Açıklama','Kalan','Ödenecek tutar'],o.items.map(x=>[x.ad,x.alt,x.kal,{h:`<input type="number" step="0.01" min="0" class="ol-t" data-key="${esc(x.key)}" value="${x.kal}" style="width:120px">`}]))}`;
+  const fark=o.fark?`<details style="margin:8px 0"><summary style="cursor:pointer"><b>İndirim veya gecikme zammı var mı?</b> <span class="mut">(isteğe bağlı)</span></summary><div class="mut" style="margin:6px 0">Ödenen tutar borcu aynı tutarda kapatır. <b>İndirim</b> = ödenmeden borçtan düşülen (gelir yazılır). <b>Gecikme zammı / ek ödeme</b> = ödediğiniz tutarın borç olmayan kısmı (gider yazılır). Boşsa fark oluşmaz.</div>${o.items.map(x=>`<div class="fg"><label class="f"><span>${esc(x.ad)} · indirim</span><input type="number" step="0.01" min="0" class="ol-i" data-key="${esc(x.key)}" placeholder="0"></label><label class="f"><span>gecikme zammı / ek ödeme</span><input type="number" step="0.01" min="0" class="ol-e" data-key="${esc(x.key)}" placeholder="0"></label></div>`).join('')}<div class="fg"><label class="f"><span>İndirim hangi gelir hesabına</span><select name="fh">${optHTML(farkSecenek(),farkSecenek()[0].v)}</select></label><label class="f"><span>Gecikme zammı hangi gider hesabına</span><select name="eh">${optHTML(ekSecenek(),ekVarsayilan())}</select></label></div></details>`:'';
+  modal({title:o.title,calc:'od',wide:!tek,okLabel:'Öde',html:`${pBankaNot()}${gov}<div class="fg">${inp('Ödeme tarihi','tarih',bugun(),'type="date" required')}${inp('Açıklama (isteğe bağlı)','aciklama','')}</div>${fark}<p id="olTop" data-kal="${tek?x0.kal:0}" style="margin:8px 0 0"></p>`,
+   ok:f=>{const tarih=val(f,'tarih');if(!tarih){toast('Ödeme tarihini girin','err');return false}
+    const parts=[];
+    if(tek)$$('.ol',f).forEach(r=>{const t=r2(Number($('.ol-t',r).value)||0);if(t>0)parts.push({key:x0.key,kasaId:$('.ol-k',r).value,tutar:t,i:0,e:0})});
+    else{const k=$('.ol-k',f).value;$$('.ol-t',f).forEach(e=>{const t=r2(Number(e.value)||0);if(t>0)parts.push({key:e.dataset.key,kasaId:k,tutar:t,i:0,e:0})})}
+    if(!parts.length){toast('Ödenecek tutarı girin','err');return false}
+    if(parts.some(p=>!p.kasaId)){toast('Ödeme hesabı seçin','err');return false}
+    let ind=0;
+    if(o.fark){const ilk={};parts.forEach(p=>{if(!ilk[p.key]){ilk[p.key]=p;const i=$$('.ol-i',f).find(e=>e.dataset.key===p.key),e2=$$('.ol-e',f).find(e=>e.dataset.key===p.key);p.i=r2(Number(i&&i.value)||0);p.e=r2(Number(e2&&e2.value)||0)}});
+      for(const p of parts){if(p.i>0&&p.e>0){toast('İndirim ve gecikme zammı aynı kalemde birlikte girilemez','err');return false}if(p.e>p.tutar){toast('Ek ödeme, ödenen tutardan fazla olamaz','err');return false}ind=r2(ind+p.i)}
+      if(ind>0&&!confirm('Toplam '+fmt(ind)+' ₺ indirim girdiniz: bu tutar ödenmeden borçtan düşülecek ve gelir yazılacak. Onaylıyor musunuz?\n(Eksik ödeme yaptıysanız İndirim alanını boş bırakın.)'))return false}
+    if(o.busy)return false;o.busy=true;setTimeout(()=>o.busy=false,1200);
+    const r=tx(()=>o.uygula({tarih,aciklama:val(f,'aciklama'),parts,fh:o.fark?val(f,'fh'):'',eh:o.fark?val(f,'eh'):''}));
+    if(r)toast(parts.length+' ödeme kaydedildi');return r}})}
+CALC.od=f=>{const e=$('#olTop',f);if(!e)return;let s=0;$$('.ol-t',f).forEach(i=>s+=Number(i.value)||0);const kal=Number(e.dataset.kal)||0;
+  e.innerHTML='Ödenecek toplam: <b>'+fmt(s)+' ₺</b>'+(kal?' · Sonra kalan: <b class="'+(kal-s<-0.004?'neg':'')+'">'+fmt(kal-s)+' ₺</b>':'')};
+ACT.olEkle=el=>{const w=$('#olSatirlar'),r=w.firstElementChild.cloneNode(true);$('.ol-t',r).value='';$('.ol-k',r).value=$('.ol-k',w).value;const b=document.createElement('button');b.type='button';b.className='btn sm';b.dataset.act='olSil';b.textContent='✕ Satırı kaldır';b.style.alignSelf='flex-end';r.appendChild(b);w.appendChild(r);$('.ol-t',r).focus()};
+ACT.olSil=el=>{const f=el.closest('form'),r=el.closest('.ol');r.remove();CALC.od(f)};
+
+/* Personel ödemesi */
+function pOdeKalem(tur,id,pid){
+  if(tur==='bordro'){const b=S.bordrolar.find(x=>x.id===id),s=b&&b.satirlar.find(x=>x.pid===pid);return s?{tut:s.net,od:maasOdenen(id,pid),donem:b.donem,acik:'Resmi maaş'}:null}
+  const t=S.netTahakkuklar.find(x=>x.id===id);return t?{tut:t.toplam,od:netOdenen(id),donem:t.donem,acik:'Diğer: '+t.satirlar.map(y=>y.ad||'Kalem').join(', ')}:null}
+function personelTahList(pf){const R=[];
+  S.bordrolar.forEach(b=>b.satirlar.forEach(s=>{if(pf&&s.pid!==pf)return;const p=S.personel.find(x=>x.id===s.pid);if(p&&s.net>0.004)R.push({p,tur:'bordro',id:b.id,donem:b.donem,tut:s.net,od:maasOdenen(b.id,s.pid),acik:'Resmi maaş'})}));
+  S.netTahakkuklar.forEach(t=>{if(pf&&t.personelId!==pf)return;const p=S.personel.find(x=>x.id===t.personelId);if(p&&t.toplam>0.004)R.push({p,tur:'net',id:t.id,donem:t.donem,tut:t.toplam,od:netOdenen(t.id),acik:'Diğer: '+t.satirlar.map(y=>y.ad||'Kalem').join(', ')})});
+  R.forEach(x=>x.k=r2(x.tut-x.od));return R}
+function pOdeAc(L){
+  const items=L.map(i=>{const k=pOdeKalem(i.tur,i.id,i.pid),p=S.personel.find(x=>x.id===i.pid);if(!k||!p)return null;const kal=r2(k.tut-k.od);return kal>0.004?{key:i.tur+':'+i.id+':'+i.pid,ad:p.ad,alt:AYLAR[+k.donem.slice(5,7)-1]+' '+k.donem.slice(0,4)+' · '+k.acik,kal}:null}).filter(Boolean);
+  if(!items.length)return toast('Seçili kalemler zaten ödenmiş; ödenecek tutar kalmadı.','err');
+  odemeModal({title:items.length===1?'Personel ödemesi':'Personel ödemesi ('+items.length+' kalem)',items,uygula:({tarih,aciklama,parts})=>{const top={};
+    parts.forEach(pt=>{const [tur,id,pid]=pt.key.split(':'),k=pOdeKalem(tur,id,pid),p=S.personel.find(x=>x.id===pid);if(!k||!p)throw new Error('Kalem bulunamadı');const kal=r2(k.tut-k.od);top[pt.key]=r2((top[pt.key]||0)+pt.tutar);
+      if(top[pt.key]>kal+0.004)throw new Error(p.ad+': ödenen toplam ('+fmt(top[pt.key])+') kalan borçtan ('+fmt(kal)+') fazla olamaz');
+      const h={tur:'maas',tarih,kasaId:pt.kasaId,personelId:pid,tutar:pt.tutar,aciklama:k.donem+(tur==='net'?' (diğer tahakkuk)':'')+(aciklama?' · '+aciklama:'')};if(tur==='bordro')h.bordroId=id;else h.netTahId=id;_hareketKaydet(h)})}})}
+ACT.pOdePen=el=>pOdeAc([{tur:el.dataset.t,id:el.dataset.id,pid:el.dataset.p}]);
+ACT.pOdeSec=el=>{const box=el.closest('[data-odeme]'),L=[...box.querySelectorAll('.od-s:checked')].map(c=>{const [tur,id,pid]=c.dataset.key.split(':');return{tur,id,pid}});if(!L.length)return toast('Önce ödenecek satırları işaretleyin.','err');pOdeAc(L)};
+const odSecBar=(btnAd,act)=>`<label class="chk"><input type="checkbox" class="od-all"> Tümünü seç</label><span class="sp"></span><span class="od-say mut"></span><button type="button" class="btn pri od-btn" data-act="${act}" disabled>${btnAd}</button>`;
+function rOdemeP(){
+  const F=UI.f.personel,pf=F.pf||'',goster=F.od||'acik',hepsi=personelTahList(pf),
+    L=(goster==='acik'?hepsi.filter(x=>x.k>0.004):hepsi.slice()).sort((a,b)=>b.donem.localeCompare(a.donem)||a.p.ad.localeCompare(b.p.ad,'tr')||(a.tur==='bordro'?-1:1));
+  const topK=r2(hepsi.reduce((t,x)=>t+Math.max(x.k,0),0)),topO=r2(hepsi.reduce((t,x)=>t+x.od,0)),acikSay=hepsi.filter(x=>x.k>0.004).length;
+  const avs=S.personel.filter(p=>(!pf||p.id===pf)&&avansBak(p.id)>0.004&&personelAcik(p.id).length),avNot=avs.length?`<div class="note">${avs.map(p=>`<div>${esc(p.ad)}: <b>${fmt(avansBak(p.id))} ₺</b> mahsup edilmemiş avans var <button class="btn sm pri" data-act="avansMahsup" data-p="${p.id}">Avansı mahsup et</button></div>`).join('')}<div class="mut">Mahsup, avansı en eski açık maaş/tahakkuktan başlayarak düşer; kalan tutarı aşağıdan ödersiniz.</div></div>`:'';
+  const kp=(l,v,s,c='')=>`<div class="card kpi"><div class="l">${l}</div><div class="v ${c}">${v}</div><div class="s">${s}</div></div>`;
+  const tb=tblA(['','Dönem','Personel','Kalem','Tutar','Ödenen','Kalan','Durum',''],L.map(x=>[{h:x.k>0.004?`<input type="checkbox" class="od-s" data-key="${x.tur}:${x.id}:${x.p.id}" data-k="${x.k}" aria-label="Seç">`:''},AYLAR[+x.donem.slice(5,7)-1]+' '+x.donem.slice(0,4),{h:pLink(x.p)},{h:(x.tur==='bordro'?badge('Resmi','blu'):badge('Bordro dışı','amb'))+' '+esc(x.acik.replace(/^Diğer: /,'').replace(/^Resmi maaş$/,'Maaş'))},x.tut,x.od,x.k>0.004?x.k:'',{h:odDurum(x.tut,x.od)},{h:x.k>0.004?`<button type="button" class="btn sm pri" data-act="pOdePen" data-t="${x.tur}" data-id="${x.id}" data-p="${x.p.id}">Öde</button>`:'<span class="mut" title="Bu kalemin ödemesi tamamlandı">✓</span>'}]));
+  return`<div data-odeme="p">${avNot}<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr))">${kp('Ödenecek toplam',money(topK),acikSay?acikSay+' kalem bekliyor':'ödenecek kalem yok',topK>0.004?'neg':'')}${kp('Ödenen',money(topO),'avans hariç')}</div>
+  <div class="bar"><select data-f="personel.pf"><option value="">Tüm personel</option>${S.personel.filter(p=>p.aktif||personelAcik(p.id).length).map(p=>`<option value="${p.id}" ${p.id===pf?'selected':''}>${esc(p.ad)}</option>`).join('')}</select><select data-f="personel.od"><option value="acik" ${goster==='acik'?'selected':''}>Yalnız ödenmemişler</option><option value="hepsi" ${goster==='hepsi'?'selected':''}>Ödenenler de görünsün</option></select><span class="sp"></span><button class="btn" data-act="avansYeni" data-p="${pf}">Avans ver</button></div>
+  ${L.length?`<div class="bar od-bar">${odSecBar('Seçilenleri öde','pOdeSec')}</div>${tb}<p class="mut">Satırdaki <b>Öde</b> tek kalemi, işaretleyip <b>Seçilenleri öde</b> birden çok kalemi ödeme penceresinde açar. Ödenen kalem <b>Ödendi</b> olur ve tekrar ödenemez. Yanlış ödemeyi Personel ekstresinden düzeltebilirsiniz.</p>`:`<div class="card mut">${goster==='acik'?'Ödenmemiş personel kalemi yok. ✓':'Personel tahakkuku yok.'}</div>`}</div>`}
+
+/* SGK / Vergi ödemesi */
+function sgkBorclar(){const hs=S.hesaplar.filter(h=>/^36[01]\./.test(h.kod)&&!baslikMi(h.kod)&&!altlar(h.kod).length).sort((a,b)=>cmpKod(a.kod,b.kod)),out=[],fl=[...S.fisler].sort(fisSira);
+  hs.forEach(h=>{const ent=[];fl.forEach(f=>f.satirlar.forEach(l=>{if(l.hesap===h.kod)ent.push({f,al:l.alacak||0,bo:l.borc||0})}));
+    let ode=r2(ent.reduce((t,x)=>t+x.bo,0)),n=0;
+    ent.filter(x=>x.al>0.004).forEach(x=>{const pay=Math.min(ode,x.al);ode=r2(ode-pay);out.push({key:h.kod+'|'+x.f.id+'|'+(n++),h,t:x.f.tarih,donem:((x.f.aciklama||'').match(/\d{4}-\d{2}/)||[x.f.tarih.slice(0,7)])[0],acik:x.f.aciklama||'',tut:x.al,od:r2(pay),k:r2(x.al-pay)})})});
+  return out}
+function sgkOdeAc(keys){const L=sgkBorclar(),items=keys.map(k=>L.find(x=>x.key===k)).filter(x=>x&&x.k>0.004).map(x=>({key:x.key,ad:x.h.kod+' '+x.h.ad,alt:AYLAR[+x.donem.slice(5,7)-1]+' '+x.donem.slice(0,4)+(x.acik?' · '+x.acik:''),kal:x.k}));
+  if(!items.length)return toast('Seçili borçlar zaten ödenmiş; ödenecek tutar kalmadı.','err');
+  odemeModal({title:items.length===1?'SGK / Vergi ödemesi':'SGK / Vergi ödemesi ('+items.length+' kalem)',items,fark:true,uygula:({tarih,aciklama,parts,fh,eh})=>{
+    const guncel={};sgkBorclar().forEach(x=>guncel[x.h.kod]=r2((guncel[x.h.kod]||0)+x.k));const kt={};
+    parts.forEach(pt=>{const hk=pt.key.split('|')[0],kp=r2(pt.tutar+pt.i-pt.e),fark=r2(pt.i-pt.e);kt[hk]=r2((kt[hk]||0)+kp);
+      if(kt[hk]>(guncel[hk]||0)+0.004)throw new Error(hk+': kapanan borç toplamı ('+fmt(kt[hk])+') kalan borçtan ('+fmt(guncel[hk]||0)+') fazla olamaz');
+      let f=fark>0?fh:eh;if(fark>0&&f==='__tesvik__')f=tesvikHesap();
+      _hareketKaydet({tur:'borcOdeme',tarih,hesap:hk,kasaId:pt.kasaId,tutar:pt.tutar,fark,farkHesap:fark?f:'',aciklama:aciklama})})}})}
+ACT.sgkOdePen=el=>sgkOdeAc([el.dataset.key]);
+ACT.sgkOdeSec=el=>{const box=el.closest('[data-odeme]'),K=[...box.querySelectorAll('.od-s:checked')].map(c=>c.dataset.key);if(!K.length)return toast('Önce ödenecek satırları işaretleyin.','err');sgkOdeAc(K)};
 function rOdemeSgk(){
-  const vk=pVarKasa();
-  const H=S.hesaplar.filter(h=>/^36[01]\./.test(h.kod)&&!baslikMi(h.kod)&&!altlar(h.kod).length).sort((a,b)=>cmpKod(a.kod,b.kod)).map(h=>({h,b:r2(-bak(h.kod))})).filter(x=>x.b>0.004);
-  const tb=tblA(['','Borç hesabı','Borç','Ödenecek tutar','İndirim','Gecikme / ek ödeme','Sonra kalan','Ödeme hesabı'],H.map(x=>[{h:`<input type="checkbox" class="od-s">`},x.h.kod+' '+x.h.ad,x.b,{h:`<input type="number" class="od-t" step="0.01" min="0" value="${x.b}" style="width:100px">`},{h:`<input type="number" class="od-ind" step="0.01" min="0" placeholder="0" style="width:80px">`},{h:`<input type="number" class="od-ek" step="0.01" min="0" placeholder="0" style="width:80px">`},{h:`<b class="od-kalan">${fmt(x.b)}</b>`},{h:pKasaSel('od-k',vk)+' <button type="button" class="btn sm" data-act="odParca" title="Aynı kalemi birkaç ödemeye böl">+ parça</button>'}])).replace(/<tbody>([\s\S]*)<\/tbody>/,(m,b)=>{let i=0;return'<tbody>'+b.replace(/<tr class="">/g,()=>{const x=H[i++];return`<tr data-h="${x.h.kod}" data-b="${x.b}">`})+'</tbody>'});
-  return`<div data-odeme="sgk"><div class="bar"><label><input type="checkbox" class="od-all"> Tümünü seç</label><span class="sp"></span><label class="f" style="margin:0;flex-direction:row;align-items:center;gap:6px"><span>Tüm satırlar için hesap:</span><select class="od-hepsi"><option value="">— seçin —</option>${kasaOpts(['kasa','banka']).map(o=>`<option value="${esc(o.v)}">${esc(o.t)}</option>`).join('')}</select></label></div>
-  ${H.length?tb:'<div class="card mut">Ödenecek SGK / vergi borcu yok (bordro oluşturunca tahakkuk eder).</div>'}
-  ${H.length?`<div class="bar" style="margin-top:8px"><span class="mut">İndirim ve gecikme zammı yalnızca özel durumda doldurulur.</span>${bilgi(`<b>Nasıl çalışır:</b> Ödenen tutar borcu <b>aynı tutarda</b> kapatır. Yalnızca özel durumda doldurun: <b>İndirim</b> = ödenmeden borçtan düşülen tutar (erken ödeme indirimi; gelir yazılır). <b>Gecikme zammı / ek ödeme</b> = ödediğiniz tutarın borç olmayan kısmı (gider yazılır; borç bu kadar az kapanır). Alanlar boşsa hiçbir fark oluşmaz.`)}</div>
-  <div class="fg" style="margin-top:10px"><label class="f"><span>İndirim hangi hesaba gelir yazılsın</span><select class="od-fh">${optHTML(farkSecenek(),farkSecenek()[0].v)}</select></label><label class="f"><span>Gecikme zammı / ek ödeme hangi gider hesabına</span><select class="od-eh">${optHTML(ekSecenek(),ekVarsayilan())}</select></label><label class="f"><span>Açıklama (isteğe bağlı)</span><input class="od-ac" placeholder="Örn: 09/2026 SGK"></label></div>
-  ${odAlt()}<button class="btn pri" data-act="vOde">Seçilenleri öde</button></div>`:''}</div>`}
-ACT.odParca=el=>{const r=el.closest('tr'),c=r.cloneNode(true),t=c.querySelector('.od-t'),k=c.querySelector('.od-k');t.value='';k.value=r.querySelector('.od-k').value;c.querySelector('.od-s').checked=false;['.od-ind','.od-ek'].forEach(q=>{const x=c.querySelector(q);if(x)x.value=''});
-  const b=c.querySelector('[data-act=odParca]');b.dataset.act='odParcaSil';b.textContent='✕';b.title='Bu parçayı kaldır';r.after(c);t.focus();toast('Ana satırın tutarını parça kadar azaltın; toplam kalan borcu aşamaz.')};
-ACT.odParcaSil=el=>{const r=el.closest('tr'),box=el.closest('[data-odeme]');r.remove();odGuncelle(box)};
-const odSecili=box=>[...box.querySelectorAll('tbody tr')].filter(r=>{const c=r.querySelector('.od-s');return c&&c.checked});
-ACT.pOde=el=>{const box=el.closest('[data-odeme]'),tarih=box.querySelector('.od-tarih').value;if(!tarih)return toast('Ödeme tarihini girin','err');const R=odSecili(box);if(!R.length)return toast('Ödenecek satırları işaretleyin','err');
-  const top={};
-  if(tx(()=>R.forEach(r=>{const p=S.personel.find(x=>x.id===r.dataset.p),t=r2(Number(r.querySelector('.od-t').value)||0),k=r.querySelector('.od-k').value,kal=r2(Number(r.dataset.k));
-    if(!(t>0))throw new Error(p.ad+': tutar girin');const key=r.dataset.t+r.dataset.id;top[key]=r2((top[key]||0)+t);if(top[key]>kal+0.004)throw new Error(p.ad+': aynı kaleme ödenen toplam ('+fmt(top[key])+') kalan borçtan ('+fmt(kal)+') fazla olamaz');if(!k)throw new Error('Ödeme hesabı seçin');
-    const h={tur:'maas',tarih,kasaId:k,personelId:p.id,tutar:t,aciklama:r.dataset.d};if(r.dataset.t==='bordro')h.bordroId=r.dataset.id;else h.netTahId=r.dataset.id;_hareketKaydet(h)}),true))toast(R.length+' ödeme kaydedildi')};
-ACT.vOde=el=>{const box=el.closest('[data-odeme]'),tarih=box.querySelector('.od-tarih').value;if(!tarih)return toast('Ödeme tarihini girin','err');const R=odSecili(box);if(!R.length)return toast('Ödenecek satırları işaretleyin','err');
-  const fh=box.querySelector('.od-fh').value,eh=box.querySelector('.od-eh').value,ac=box.querySelector('.od-ac').value.trim();let ind=0;
-  const D=R.map(r=>({r,hk:r.dataset.h,b:Number(r.dataset.b),od:r2(Number(r.querySelector('.od-t').value)||0),i:r2(Number(r.querySelector('.od-ind').value)||0),e:r2(Number(r.querySelector('.od-ek').value)||0),k:r.querySelector('.od-k').value}));
-  for(const d of D){if(!(d.od>0))return toast(d.hk+': ödenecek tutarı girin','err');if(d.i>0&&d.e>0)return toast(d.hk+': indirim ve gecikme zammı aynı satırda birlikte girilemez','err');if(d.e>d.od)return toast(d.hk+': ek ödeme, ödenen tutardan fazla olamaz','err');ind=r2(ind+d.i)}
-  if(ind>0&&!confirm('Toplam '+fmt(ind)+' ₺ indirim girdiniz: bu tutar ödenmeden borçtan düşülecek ve seçili hesaba gelir yazılacak. Onaylıyor musunuz?\n(Eksik ödeme yaptıysanız İndirim alanını boş bırakın.)'))return;
-  const kt={};
-  if(tx(()=>D.forEach(d=>{const kp=r2(d.od+d.i-d.e),fark=r2(d.i-d.e);if(!d.k)throw new Error('Ödeme hesabı seçin');kt[d.hk]=r2((kt[d.hk]||0)+kp);if(kt[d.hk]>d.b+0.004)throw new Error(d.hk+': kapanan borç toplamı ('+fmt(kt[d.hk])+') mevcut borçtan ('+fmt(d.b)+') fazla olamaz');
-    let f=fark>0?fh:eh;if(fark>0&&f==='__tesvik__')f=tesvikHesap();_hareketKaydet({tur:'borcOdeme',tarih,hesap:d.hk,kasaId:d.k,tutar:d.od,fark,farkHesap:fark?f:'',aciklama:ac})}),true))toast(R.length+' ödeme kaydedildi')};
-function odGuncelle(box){let t=0;odSecili(box).forEach(r=>t+=Number(r.querySelector('.od-t').value)||0);const e=box.querySelector('.od-top');if(e)e.textContent=fmt(t);
-  if(box.dataset.odeme==='sgk'){const top={};box.querySelectorAll('tbody tr').forEach(r=>{const c=r.querySelector('.od-s'),h=r.dataset.h;if(c&&c.checked){const od=Number(r.querySelector('.od-t').value)||0,i=Number(r.querySelector('.od-ind').value)||0,e2=Number(r.querySelector('.od-ek').value)||0;top[h]=(top[h]||0)+od+i-e2}});
-    box.querySelectorAll('tbody tr').forEach(r=>{const k=r.querySelector('.od-kalan');if(k)k.textContent=fmt(Number(r.dataset.b)-(top[r.dataset.h]||0))})}}
-['input','change'].forEach(ev=>document.addEventListener(ev,e=>{const t=e.target,box=t.closest&&t.closest('[data-odeme]');if(!box)return;
-  if(t.classList.contains('od-all')){box.querySelectorAll('.od-s').forEach(c=>c.checked=t.checked)}
-  else if(t.classList.contains('od-hepsi')){if(t.value)box.querySelectorAll('.od-k').forEach(s=>s.value=t.value)}
-  else if(t.classList.contains('od-t')||t.classList.contains('od-ind')||t.classList.contains('od-ek')){const r=t.closest('tr'),c=r&&r.querySelector('.od-s');if(c&&ev==='input'&&Number(t.value)>0)c.checked=true}
-  odGuncelle(box)}));
+  const F=UI.f.personel,goster=F.sod||'acik',hepsi=sgkBorclar(),L=(goster==='acik'?hepsi.filter(x=>x.k>0.004):hepsi.slice()).sort((a,b)=>b.t.localeCompare(a.t)||cmpKod(a.h.kod,b.h.kod));
+  const topK=r2(hepsi.reduce((t,x)=>t+x.k,0)),topO=r2(hepsi.reduce((t,x)=>t+x.od,0)),acikSay=hepsi.filter(x=>x.k>0.004).length;
+  const kp=(l,v,s,c='')=>`<div class="card kpi"><div class="l">${l}</div><div class="v ${c}">${v}</div><div class="s">${s}</div></div>`;
+  const tb=tblA(['','Dönem','Borç hesabı','Açıklama','Tahakkuk','Ödenen','Kalan','Durum',''],L.map(x=>[{h:x.k>0.004?`<input type="checkbox" class="od-s" data-key="${esc(x.key)}" data-k="${x.k}" aria-label="Seç">`:''},AYLAR[+x.donem.slice(5,7)-1]+' '+x.donem.slice(0,4),x.h.kod+' '+x.h.ad,x.acik,x.tut,x.od,x.k>0.004?x.k:'',{h:odDurum(x.tut,x.od)},{h:x.k>0.004?`<button type="button" class="btn sm pri" data-act="sgkOdePen" data-key="${esc(x.key)}">Öde</button>`:'<span class="mut" title="Bu borç tamamen ödendi">✓</span>'}]));
+  return`<div data-odeme="sgk"><div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr))">${kp('Ödenecek SGK / vergi',money(topK),acikSay?acikSay+' kalem bekliyor':'ödenecek borç yok',topK>0.004?'neg':'')}${kp('Ödenen',money(topO),'indirim dahil')}</div>
+  <div class="bar"><select data-f="personel.sod"><option value="acik" ${goster==='acik'?'selected':''}>Yalnız ödenmemişler</option><option value="hepsi" ${goster==='hepsi'?'selected':''}>Ödenenler de görünsün</option></select><span class="sp"></span><button class="btn" data-act="sgkEkstre">Ekstre / ödeme geçmişi</button></div>
+  ${L.length?`<div class="bar od-bar">${odSecBar('Seçilenleri öde','sgkOdeSec')}</div>${tb}<p class="mut">Bordro oluşturulunca SGK, gelir vergisi ve damga vergisi borcu burada görünür. Satırdaki <b>Öde</b> ödeme penceresini açar; ödenen borç <b>Ödendi</b> olur ve tekrar ödenemez. Ödemeler en eski borca sayılır; indirim / gecikme zammı ödeme penceresindedir.</p>`:`<div class="card mut">${goster==='acik'?'Ödenmemiş SGK / vergi borcu yok. ✓ (bordro oluşturunca tahakkuk eder)':'SGK / vergi tahakkuku yok.'}</div>`}</div>`}
+function odGuncelle(box){let n=0,t=0;box.querySelectorAll('.od-s').forEach(c=>{if(c.checked){n++;t+=Number(c.dataset.k)||0}});const b=box.querySelector('.od-btn'),s=box.querySelector('.od-say');if(b)b.disabled=!n;if(s)s.textContent=n?n+' kalem seçili · kalan toplam '+fmt(t)+' ₺':''}
+document.addEventListener('change',e=>{const t=e.target,box=t.closest&&t.closest('[data-odeme]');if(!box)return;
+  if(t.classList.contains('od-all'))box.querySelectorAll('.od-s').forEach(c=>c.checked=t.checked);
+  else if(t.classList.contains('od-s')){const a=box.querySelector('.od-all');if(a)a.checked=[...box.querySelectorAll('.od-s')].every(c=>c.checked)}
+  else return;odGuncelle(box)});
 function rPKart(){
   return pBar('<button class="btn pri" data-act="personelYeni">+ Personel</button>')+tblA(['Ad Soyad','Görev','Giriş','Brüt maaş','Hesap','Durum',''],S.personel.map(p=>[{h:pLink(p)},p.gorev,tTR(p.baslangic),p.brut,p.hesap||'',{h:badge(p.aktif?'Çalışıyor':'Ayrıldı',p.aktif?'grn':'')},{h:`<span class="act"><button class="btn sm" data-act="personelDuzenle" data-id="${p.id}">Düzenle</button> <button class="btn sm red" data-act="personelSil" data-id="${p.id}">Sil</button></span>`}]))}
 function personelEkstre(pid){const R=[];
