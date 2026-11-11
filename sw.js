@@ -1,5 +1,5 @@
 /* Kobi Defter servis çalışanı. Her yayında SURUM'u değiştirin (version.json ile aynı). */
-const SURUM='3.2';
+const SURUM='3.3';
 const KAP='kobi-defter-'+SURUM;
 const DOSYALAR=['./','index.html','manifest.webmanifest','icon-192.png','icon-512.png','icon-maskable-512.png'];
 self.addEventListener('install',e=>{e.waitUntil(caches.open(KAP).then(c=>Promise.all(DOSYALAR.map(u=>fetch(new Request(u,{cache:'reload'})).then(r=>{if(!r.ok)throw new Error(u);return c.put(u,r)})))))});

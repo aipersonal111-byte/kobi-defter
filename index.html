@@ -240,7 +240,7 @@ gorunumUygula();
  fonksiyon ekleyin (data-act="eylemAdı"). Kayıtlar mutlaka fisYaz() ile
  yevmiye fişi üretir; böylece mizan/bilanço/gelir tablosu otomatik güncellenir.
  ===================================================================== */
-const APP_VER='3.2';
+const APP_VER='3.3';
 const DB_SEMA=6; /* veri şeması: yeni alan/yapı eklenince artırın; uyumla() eski veriyi yükseltir */
 let SALT=false;
 let S=null;
@@ -519,14 +519,14 @@ function _bordroKaydet(b){
   const T={brut:0,isv:0,sgk:0,gv:0,dm:0};const L=[];
   b.satirlar.forEach(s=>{const p=S.personel.find(x=>x.id===s.pid);if(!p)throw new Error('Personel kaydı bulunamadı');
     s.net=r2(s.brut-s.sgkIsci-s.issizIsci-s.gv-s.damga);
-    {const od=maasOdenen(b.id,s.pid);if(s.net<od-0.004)throw new Error(p.ad+': net ücret ('+fmt(s.net)+') ödenen tutardan ('+fmt(od)+') az olamaz. Önce ödemeyi Personel › Ekstre ekranından düzeltin.')}
+    {const od=maasBagli(b.id,s.pid);if(s.net<od-0.004)throw new Error(p.ad+': net ücret ('+fmt(s.net)+') ödenen tutardan ('+fmt(od)+') az olamaz. Önce ödemeyi Personel › Ekstre ekranından düzeltin.')}
     L.push({hesap:personelHesap(p),alacak:s.net,aciklama:p.ad});
     T.brut+=s.brut;T.isv+=s.sgkIsveren+s.issizIsveren;T.sgk+=s.sgkIsci+s.issizIsci+s.sgkIsveren+s.issizIsveren;T.gv+=s.gv;T.dm+=s.damga});
   L.push({hesap:HESAP_PERSONEL,borc:r2(T.brut+T.isv)});
   L.push({hesap:'361.01',alacak:r2(T.sgk)},{hesap:'360.01',alacak:r2(T.gv)},{hesap:'360.02',alacak:r2(T.dm)});
   fisYaz({tarih:b.tarih,aciklama:'Maaş tahakkuku '+b.donem,kaynak:{tip:'bordro',id:b.id},satirlar:L});
 }
-const maasOdenen=(bid,pid)=>r2(S.hareketler.filter(h=>h.tur==='maas'&&h.bordroId===bid&&h.personelId===pid).reduce((t,h)=>t+h.tutar,0));
+const maasOdenen=(bid,pid)=>maasTahsis(pid).b[bid]||0;
 
 /* ---------------- Arayüz yardımcıları ---------------- */
 const UI={page:'panel',arg:'',f:{}};
@@ -1229,7 +1229,7 @@ ACT.bordroYeni=()=>bordroForm();ACT.bordroDuzenle=el=>bordroForm(el.dataset.id);
 ACT.bordroSil=el=>{const b=S.bordrolar.find(x=>x.id===el.dataset.id);if(S.hareketler.some(h=>h.bordroId===b.id))return toast('Bu bordroya ait maaş ödemeleri var; önce ödemeleri Personel › Ekstre ekranından silin.','err');if(confirm(b.donem+' bordrosu silinsin mi?'))tx(()=>{fisSil('bordro',b.id);S.bordrolar=S.bordrolar.filter(x=>x.id!==b.id)})};
 const pGit=f=>{UI.f.personel=Object.assign({tab:'ozet'},f);if(location.hash!=='#/personel')location.hash='#/personel';else render();window.scrollTo(0,0)};
 ACT.maasOde=el=>pGit({tab:'odeme',alt:'p',pf:el.dataset.p||''});
-ACT.netOde=el=>pGit({tab:'odeme',alt:'p',pf:el.dataset.p||''});
+ACT.netOde=el=>el.dataset.p?pOdemeAc([el.dataset.p]):pGit({tab:'odeme',alt:'p',pf:''});
 ACT.vergiOde=()=>pGit({tab:'odeme',alt:'sgk'});
 ACT.pAlt=el=>{UI.f.personel.alt=el.dataset.t;render()};
 const TESVIK_AD='SGK Teşvik ve İndirim Gelirleri';
@@ -1239,14 +1239,14 @@ const EK_KALEM_AD='Personel Ek Ödemeleri (Bordro Dışı Net)';
 const NT_ONERI=['Maaş (net, bordro dışı)','Yemek yardımı','Yol yardımı','Prim','İkramiye','Sosyal yardım','Yakacak yardımı','Diğer'];
 function ekKalem(){let k=S.kalemler.find(x=>x.ad===EK_KALEM_AD);if(!k){const kod=yeniAltHesap('770','Personel Ek Ödemeleri (Bordro Dışı)');k={id:uid(),tur:'gider',ad:EK_KALEM_AD,hesapKod:kod,kdv:0};S.kalemler.push(k)}return k}
 const ntKalemSecenek=()=>{const ek=S.kalemler.find(x=>x.ad===EK_KALEM_AD);return[{v:ek?ek.id:'__ek__',t:EK_KALEM_AD+(ek?'':' (otomatik açılır)')},...S.kalemler.filter(k=>k.tur==='gider'&&k.ad!==EK_KALEM_AD).map(k=>({v:k.id,t:k.ad+' ('+k.hesapKod+')'}))]};
-const netOdenen=tid=>r2(S.hareketler.filter(h=>h.tur==='maas'&&h.netTahId===tid).reduce((a,h)=>a+h.tutar,0));
+const netOdenen=tid=>{const t=S.netTahakkuklar.find(x=>x.id===tid);return t?(maasTahsis(t.personelId).n[tid]||0):0};
 function _netTahKaydet(t){
   const p=S.personel.find(x=>x.id===t.personelId);if(!p)throw new Error('Personel seçin');
   t.satirlar=t.satirlar.filter(s=>s.ad||s.tutar);if(!t.satirlar.length)throw new Error('En az bir kalem girin');
   t.satirlar.forEach(s=>{s.tutar=r2(s.tutar);if(!(s.tutar>0))throw new Error('Kalem tutarı girin: '+(s.ad||'?'));if(s.kalemId==='__ek__')s.kalemId=ekKalem().id;if(!kalemBul(s.kalemId))throw new Error('Gider kalemi seçin')});
   t.toplam=r2(t.satirlar.reduce((a,s)=>a+s.tutar,0));
   const i=S.netTahakkuklar.findIndex(x=>x.id===t.id);
-  if(i>=0){const od=netOdenen(t.id);if(od>0&&S.netTahakkuklar[i].personelId!==t.personelId)throw new Error('Ödemesi yapılmış tahakkukun personeli değiştirilemez');if(t.toplam<od-0.004)throw new Error('Toplam, yapılmış ödemelerden ('+fmt(od)+') az olamaz');fisSil('nettah',t.id);S.netTahakkuklar[i]=t}
+  if(i>=0){const od=netBagli(t.id);if(od>0&&S.netTahakkuklar[i].personelId!==t.personelId)throw new Error('Ödemesi yapılmış tahakkukun personeli değiştirilemez');if(t.toplam<od-0.004)throw new Error('Toplam, yapılmış ödemelerden ('+fmt(od)+') az olamaz');fisSil('nettah',t.id);S.netTahakkuklar[i]=t}
   else{t.id=t.id||uid();S.netTahakkuklar.push(t)}
   const g={};t.satirlar.forEach(s=>{const h=kalemBul(s.kalemId).hesapKod;g[h]=r2((g[h]||0)+s.tutar)});
   const L=Object.keys(g).map(h=>({hesap:h,borc:g[h]}));L.push({hesap:personelHesap(p),alacak:t.toplam,aciklama:p.ad});
@@ -1269,7 +1269,7 @@ function netTahForm(id,pid0){
    ok:f=>tx(()=>{const o={id:t.id,donem:val(f,'donem'),tarih:val(f,'tarih'),personelId:od>0?t.personelId:val(f,'personelId'),aciklama:val(f,'aciklama'),satirlar:$$('.ntrow',f).map(r=>({ad:$('.nt-ad',r).value.trim(),kalemId:$('.nt-k',r).value,tutar:Number($('.nt-t',r).value)||0}))};if(!o.donem)throw new Error('Dönem seçin');_netTahKaydet(o)})})}
 ACT.netTahYeni=el=>netTahForm(null,el&&el.dataset?el.dataset.p:'');ACT.netTahDuzenle=el=>netTahForm(el.dataset.id);
 ACT.netTahSil=el=>{const t=S.netTahakkuklar.find(x=>x.id===el.dataset.id);if(netOdenen(t.id)>0)return toast('Bu tahakkukun ödemeleri var; önce ödemeleri silin (Tahsilat/Ödeme › kasa hareketleri).','err');if(confirm('Tahakkuk silinsin mi?'))tx(()=>{fisSil('nettah',t.id);S.netTahakkuklar=S.netTahakkuklar.filter(x=>x.id!==t.id)})};
-const avansBak=pid=>r2(S.hareketler.filter(h=>h.tur==='maas'&&h.personelId===pid&&h.avans&&!h.bordroId&&!h.netTahId).reduce((t,h)=>t+h.tutar,0));
+const avansBak=pid=>maasTahsis(pid).fazla;
 const pBakiyeler=()=>S.personel.map(p=>{const a=personelAcik(p.id),r=r2(a.filter(x=>x.tur==='bordro').reduce((t,x)=>t+x.k,0)),n=r2(a.filter(x=>x.tur==='net').reduce((t,x)=>t+x.k,0));return{p,r,n,t:r2(r+n),av:avansBak(p.id),h:p.hesap?r2(-bak(p.hesap)):0}});
 const pLink=p=>`<a class="lnk" data-act="pEkstre" data-p="${p.id}">${esc(p.ad)}</a>`;
 ACT.pEkstre=el=>{UI.f.personel.tab='pekstre';UI.f.personel.ekstre=el.dataset.p;render();window.scrollTo(0,0)};
@@ -1337,37 +1337,69 @@ function odemeModal(o){
 CALC.od=f=>{const e=$('#olTop',f);if(!e)return;let s=0;$$('.ol-t',f).forEach(i=>s+=Number(i.value)||0);const kal=Number(e.dataset.kal)||0;
   e.innerHTML='Ödenecek toplam: <b>'+fmt(s)+' ₺</b>'+(kal?' · Sonra kalan: <b class="'+(kal-s<-0.004?'neg':'')+'">'+fmt(kal-s)+' ₺</b>':'')};
 ACT.olEkle=el=>{const w=$('#olSatirlar'),r=w.firstElementChild.cloneNode(true);$('.ol-t',r).value='';$('.ol-k',r).value=$('.ol-k',w).value;const b=document.createElement('button');b.type='button';b.className='btn sm';b.dataset.act='olSil';b.textContent='✕ Satırı kaldır';b.style.alignSelf='flex-end';r.appendChild(b);w.appendChild(r);$('.ol-t',r).focus()};
-ACT.olSil=el=>{const f=el.closest('form'),r=el.closest('.ol');r.remove();CALC.od(f)};
+ACT.olSil=el=>{const f=el.closest('form'),r=el.closest('.ol');r.remove();const c=CALC[f.dataset.calc];if(c)c(f)};
 
 /* Personel ödemesi */
-function pOdeKalem(tur,id,pid){
-  if(tur==='bordro'){const b=S.bordrolar.find(x=>x.id===id),s=b&&b.satirlar.find(x=>x.pid===pid);return s?{tut:s.net,od:maasOdenen(id,pid),donem:b.donem,acik:'Resmi maaş'}:null}
-  const t=S.netTahakkuklar.find(x=>x.id===id);return t?{tut:t.toplam,od:netOdenen(id),donem:t.donem,acik:'Diğer: '+t.satirlar.map(y=>y.ad||'Kalem').join(', ')}:null}
 function personelTahList(pf){const R=[];
   S.bordrolar.forEach(b=>b.satirlar.forEach(s=>{if(pf&&s.pid!==pf)return;const p=S.personel.find(x=>x.id===s.pid);if(p&&s.net>0.004)R.push({p,tur:'bordro',id:b.id,donem:b.donem,tut:s.net,od:maasOdenen(b.id,s.pid),acik:'Resmi maaş'})}));
   S.netTahakkuklar.forEach(t=>{if(pf&&t.personelId!==pf)return;const p=S.personel.find(x=>x.id===t.personelId);if(p&&t.toplam>0.004)R.push({p,tur:'net',id:t.id,donem:t.donem,tut:t.toplam,od:netOdenen(t.id),acik:'Diğer: '+t.satirlar.map(y=>y.ad||'Kalem').join(', ')})});
   R.forEach(x=>x.k=r2(x.tut-x.od));return R}
-function pOdeAc(L){
-  const items=L.map(i=>{const k=pOdeKalem(i.tur,i.id,i.pid),p=S.personel.find(x=>x.id===i.pid);if(!k||!p)return null;const kal=r2(k.tut-k.od);return kal>0.004?{key:i.tur+':'+i.id+':'+i.pid,ad:p.ad,alt:AYLAR[+k.donem.slice(5,7)-1]+' '+k.donem.slice(0,4)+' · '+k.acik,kal}:null}).filter(Boolean);
-  if(!items.length)return toast('Seçili kalemler zaten ödenmiş; ödenecek tutar kalmadı.','err');
-  odemeModal({title:items.length===1?'Personel ödemesi':'Personel ödemesi ('+items.length+' kalem)',items,uygula:({tarih,aciklama,parts})=>{const top={};
-    parts.forEach(pt=>{const [tur,id,pid]=pt.key.split(':'),k=pOdeKalem(tur,id,pid),p=S.personel.find(x=>x.id===pid);if(!k||!p)throw new Error('Kalem bulunamadı');const kal=r2(k.tut-k.od);top[pt.key]=r2((top[pt.key]||0)+pt.tutar);
-      if(top[pt.key]>kal+0.004)throw new Error(p.ad+': ödenen toplam ('+fmt(top[pt.key])+') kalan borçtan ('+fmt(kal)+') fazla olamaz');
-      const h={tur:'maas',tarih,kasaId:pt.kasaId,personelId:pid,tutar:pt.tutar,aciklama:k.donem+(tur==='net'?' (diğer tahakkuk)':'')+(aciklama?' · '+aciklama:'')};if(tur==='bordro')h.bordroId=id;else h.netTahId=id;_hareketKaydet(h)})}})}
-ACT.pOdePen=el=>pOdeAc([{tur:el.dataset.t,id:el.dataset.id,pid:el.dataset.p}]);
-ACT.pOdeSec=el=>{const box=el.closest('[data-odeme]'),L=[...box.querySelectorAll('.od-s:checked')].map(c=>{const [tur,id,pid]=c.dataset.key.split(':');return{tur,id,pid}});if(!L.length)return toast('Önce ödenecek satırları işaretleyin.','err');pOdeAc(L)};
 const odSecBar=(btnAd,act)=>`<label class="chk"><input type="checkbox" class="od-all"> Tümünü seç</label><span class="sp"></span><span class="od-say mut"></span><button type="button" class="btn pri od-btn" data-act="${act}" disabled>${btnAd}</button>`;
+/* ---- Personel ödemesi (v3.3): ödeme tek parça kaydedilir; tahakkuklara en eskiden başlayarak sanal eşleşir; fazlası avans/fazla ödeme olarak kalır ---- */
+function maasTahsis(pid){
+  const T=[];S.bordrolar.forEach(b=>{const s=b.satirlar.find(x=>x.pid===pid);if(s&&s.net>0.004)T.push({k:'b'+b.id,donem:b.donem,tarih:b.tarih||'',s:0,tut:s.net})});
+  S.netTahakkuklar.forEach(t=>{if(t.personelId===pid&&t.toplam>0.004)T.push({k:'n'+t.id,donem:t.donem,tarih:t.tarih||'',s:1,tut:t.toplam})});
+  T.sort((a,b)=>a.donem.localeCompare(b.donem)||a.tarih.localeCompare(b.tarih)||a.s-b.s);
+  const dir={};let havuz=0;
+  S.hareketler.forEach(h=>{if(h.tur!=='maas'||h.personelId!==pid)return;if(h.bordroId||h.netTahId){const k=(h.bordroId?'b':'n')+(h.bordroId||h.netTahId);dir[k]=r2((dir[k]||0)+h.tutar)}else havuz=r2(havuz+h.tutar)});
+  const o={b:{},n:{}};
+  T.forEach(x=>{let d=Math.min(dir[x.k]||0,x.tut);havuz=r2(havuz+Math.max((dir[x.k]||0)-x.tut,0));x.od=r2(d)});
+  T.forEach(x=>{const t=Math.min(havuz,r2(x.tut-x.od));x.od=r2(x.od+t);havuz=r2(havuz-t);o[x.k[0]][x.k.slice(1)]=x.od});
+  o.fazla=havuz;return o}
+const maasBagli=(bid,pid)=>r2(S.hareketler.filter(h=>h.tur==='maas'&&h.bordroId===bid&&h.personelId===pid).reduce((t,h)=>t+h.tutar,0));
+const netBagli=tid=>r2(S.hareketler.filter(h=>h.tur==='maas'&&h.netTahId===tid).reduce((a,h)=>a+h.tutar,0));
+function pOdemeAc(pids,ilk){
+  const P=pids.map(id=>S.personel.find(x=>x.id===id)).filter(Boolean);if(!P.length)return;
+  const bk=p=>{const a=personelAcik(p.id);return{p,k:r2(a.reduce((t,x)=>t+x.k,0)),fz:avansBak(p.id),a}};
+  const D=P.map(bk),tek=D.length===1,x0=D[0],vk=pVarKasa();
+  const dolu=x=>x.k>0.004?x.k:'';
+  const gov=tek?`<div class="note" style="margin-top:0"><b>${esc(x0.p.ad)}</b> · ${x0.k>0.004?'Ödenecek bakiye: <b>'+fmt(x0.k)+' ₺</b>':x0.fz>0.004?'Fazla ödeme / avans bakiyesi: <b>'+fmt(x0.fz)+' ₺</b>':'Ödenecek bakiye yok'}</div>
+    <div id="olSatirlar"><div class="ol fg"><label class="f"><span>Ödeme hesabı (kasa / banka)</span>${pKasaSel('ol-k',vk)}</label><label class="f"><span>Tutar</span><input type="number" step="0.01" min="0" class="ol-t" value="${ilk!=null?ilk:dolu(x0)}" autofocus></label></div></div>
+    <div class="bar" style="margin:0 0 6px"><button type="button" class="btn sm" data-act="olEkle">+ Başka hesaptan da öde</button><span class="mut" style="font-size:12px">Bakiyeden fazla tutar girebilirsiniz; fazlası avans olarak kalır.</span></div>`
+   :`<div class="fg"><label class="f"><span>Ödeme hesabı (kasa / banka)</span>${pKasaSel('ol-k',vk)}</label></div>${tblA(['Personel','Ödenecek bakiye','Ödenecek tutar'],D.map(x=>[x.p.ad,x.k>0.004?x.k:(x.fz>0.004?'avans '+fmt(x.fz):0),{h:`<input type="number" step="0.01" min="0" class="ol-t" data-key="${x.p.id}" value="${dolu(x)}" style="width:130px">`}]))}<p class="mut" style="margin:6px 0 0">Tutarı boş bıraktığınız personel ödenmez. Bakiyeden fazla tutar avans olarak kalır.</p>`;
+  const veri=tek?esc(JSON.stringify({k:x0.k,a:x0.a.map(x=>[AYLAR[+x.donem.slice(5,7)-1]+' '+x.donem.slice(0,4)+(x.tur==='net'?' (diğer)':' maaşı'),x.k])})):'';
+  modal({title:tek?'Personel ödemesi':'Personel ödemesi ('+D.length+' kişi)',calc:'pode',wide:!tek,okLabel:'Öde',html:`${pBankaNot()}${gov}<div class="fg">${inp('Ödeme tarihi','tarih',bugun(),'type="date" required')}${inp('Açıklama (isteğe bağlı)','aciklama','','placeholder="Örn: Eylül maaşı, avans, prim…"')}</div><div id="pvTop" data-v="${veri}" style="margin-top:8px"></div>`,
+   ok:f=>{const tarih=val(f,'tarih');if(!tarih){toast('Ödeme tarihini girin','err');return false}
+    const parts=[];
+    if(tek)$$('.ol',f).forEach(r=>{const t=r2(Number($('.ol-t',r).value)||0);if(t>0)parts.push({pid:x0.p.id,kasaId:$('.ol-k',r).value,tutar:t})});
+    else{const k=$('.ol-k',f).value;$$('.ol-t',f).forEach(e=>{const t=r2(Number(e.value)||0);if(t>0)parts.push({pid:e.dataset.key,kasaId:k,tutar:t})})}
+    if(!parts.length){toast('Ödenecek tutarı girin','err');return false}
+    if(parts.some(x=>!x.kasaId)){toast('Ödeme hesabı seçin','err');return false}
+    const ac=val(f,'aciklama'),r=tx(()=>parts.forEach(x=>_hareketKaydet({tur:'maas',tarih,kasaId:x.kasaId,personelId:x.pid,tutar:x.tutar,aciklama:ac})));
+    if(r)toast(parts.length+' ödeme kaydedildi');return r}})}
+CALC.pode=f=>{const e=$('#pvTop',f);if(!e||!e.dataset.v)return;const v=JSON.parse(e.dataset.v);let s=0;$$('.ol-t',f).forEach(i=>s+=Number(i.value)||0);s=r2(s);
+  let rest=s,L=[];v.a.forEach(([ad,k])=>{if(rest<=0.004)return;const d=Math.min(rest,k);rest=r2(rest-d);L.push(esc(ad)+(d>=k-0.004?' ✓ kapanır':' kısmen ('+fmt(k-d)+' ₺ kalır)'))});
+  let h='Ödenecek toplam: <b>'+fmt(s)+' ₺</b>';
+  if(s>0.004){if(v.a.length)h+='<div class="mut" style="font-size:13px;margin-top:2px">'+(L.length?L.join(' · '):'')+'</div>';
+    if(rest>0.004)h+='<div class="note" style="margin:6px 0 0">Bakiyenin üstündeki <b>'+fmt(rest)+' ₺</b> avans / fazla ödeme olarak kalır; sonraki tahakkuklara otomatik düşer. Açıklamaya “Avans” yazabilirsiniz.</div>'}
+  e.innerHTML=h};
+ACT.pOdePen=el=>pOdemeAc([el.dataset.p]);
+ACT.pOdeSec=el=>{const box=el.closest('[data-odeme]'),L=[...box.querySelectorAll('.od-s:checked')].map(c=>c.dataset.key);if(!L.length)return toast('Önce personeli işaretleyin.','err');pOdemeAc(L)};
+const pDurum=(t,o,fz,tut)=>tut<=0.004&&o<=0.004&&fz<=0.004?badge('Bakiye yok',''):t<=0.004&&fz>0.004?badge('Fazla ödeme','blu'):t<=0.004?badge('Ödendi','grn'):o>0.004?badge('Kısmen ödendi','amb'):badge('Ödenmedi','red');
 function rOdemeP(){
-  const F=UI.f.personel,pf=F.pf||'',goster=F.od||'acik',hepsi=personelTahList(pf),
-    L=(goster==='acik'?hepsi.filter(x=>x.k>0.004):hepsi.slice()).sort((a,b)=>b.donem.localeCompare(a.donem)||a.p.ad.localeCompare(b.p.ad,'tr')||(a.tur==='bordro'?-1:1));
-  const topK=r2(hepsi.reduce((t,x)=>t+Math.max(x.k,0),0)),topO=r2(hepsi.reduce((t,x)=>t+x.od,0)),acikSay=hepsi.filter(x=>x.k>0.004).length;
-  const avs=S.personel.filter(p=>(!pf||p.id===pf)&&avansBak(p.id)>0.004&&personelAcik(p.id).length),avNot=avs.length?`<div class="note">${avs.map(p=>`<div>${esc(p.ad)}: <b>${fmt(avansBak(p.id))} ₺</b> mahsup edilmemiş avans var <button class="btn sm pri" data-act="avansMahsup" data-p="${p.id}">Avansı mahsup et</button></div>`).join('')}<div class="mut">Mahsup, avansı en eski açık maaş/tahakkuktan başlayarak düşer; kalan tutarı aşağıdan ödersiniz.</div></div>`:'';
+  const F=UI.f.personel,pf=F.pf||'',goster=F.od||'acik';
+  const D=S.personel.filter(p=>(!pf||p.id===pf)).map(p=>{const a=personelAcik(p.id),k=r2(a.reduce((t,x)=>t+x.k,0)),L=personelTahList(p.id),tut=r2(L.reduce((t,x)=>t+x.tut,0)),od=r2(L.reduce((t,x)=>t+x.od,0));return{p,k,fz:avansBak(p.id),tut,od,L}}).filter(x=>x.p.aktif||x.k>0.004||x.fz>0.004).sort((a,b)=>a.p.ad.localeCompare(b.p.ad,'tr'));
+  const G=goster==='acik'?D.filter(x=>x.k>0.004||x.fz>0.004):D;
+  const topK=r2(D.reduce((t,x)=>t+x.k,0)),topFz=r2(D.reduce((t,x)=>t+x.fz,0)),acikSay=D.filter(x=>x.k>0.004).length;
   const kp=(l,v,s,c='')=>`<div class="card kpi"><div class="l">${l}</div><div class="v ${c}">${v}</div><div class="s">${s}</div></div>`;
-  const tb=tblA(['','Dönem','Personel','Kalem','Tutar','Ödenen','Kalan','Durum',''],L.map(x=>[{h:x.k>0.004?`<input type="checkbox" class="od-s" data-key="${x.tur}:${x.id}:${x.p.id}" data-k="${x.k}" aria-label="Seç">`:''},AYLAR[+x.donem.slice(5,7)-1]+' '+x.donem.slice(0,4),{h:pLink(x.p)},{h:(x.tur==='bordro'?badge('Resmi','blu'):badge('Bordro dışı','amb'))+' '+esc(x.acik.replace(/^Diğer: /,'').replace(/^Resmi maaş$/,'Maaş'))},x.tut,x.od,x.k>0.004?x.k:'',{h:odDurum(x.tut,x.od)},{h:x.k>0.004?`<button type="button" class="btn sm pri" data-act="pOdePen" data-t="${x.tur}" data-id="${x.id}" data-p="${x.p.id}">Öde</button>`:'<span class="mut" title="Bu kalemin ödemesi tamamlandı">✓</span>'}]));
-  return`<div data-odeme="p">${avNot}<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr))">${kp('Ödenecek toplam',money(topK),acikSay?acikSay+' kalem bekliyor':'ödenecek kalem yok',topK>0.004?'neg':'')}${kp('Ödenen',money(topO),'avans hariç')}</div>
-  <div class="bar"><select data-f="personel.pf"><option value="">Tüm personel</option>${S.personel.filter(p=>p.aktif||personelAcik(p.id).length).map(p=>`<option value="${p.id}" ${p.id===pf?'selected':''}>${esc(p.ad)}</option>`).join('')}</select><select data-f="personel.od"><option value="acik" ${goster==='acik'?'selected':''}>Yalnız ödenmemişler</option><option value="hepsi" ${goster==='hepsi'?'selected':''}>Ödenenler de görünsün</option></select><span class="sp"></span><button class="btn" data-act="avansYeni" data-p="${pf}">Avans ver</button></div>
-  ${L.length?`<div class="bar od-bar">${odSecBar('Seçilenleri öde','pOdeSec')}</div>${tb}<p class="mut">Satırdaki <b>Öde</b> tek kalemi, işaretleyip <b>Seçilenleri öde</b> birden çok kalemi ödeme penceresinde açar. Ödenen kalem <b>Ödendi</b> olur ve tekrar ödenemez. Yanlış ödemeyi Personel ekstresinden düzeltebilirsiniz.</p>`:`<div class="card mut">${goster==='acik'?'Ödenmemiş personel kalemi yok. ✓':'Personel tahakkuku yok.'}</div>`}</div>`}
-
+  const tb=tblA(['','Personel','Tahakkuk toplamı','Ödenen','Ödenecek bakiye','Durum',''],G.map(x=>[{h:`<input type="checkbox" class="od-s" data-key="${x.p.id}" data-k="${x.k}" aria-label="Seç">`},{h:pLink(x.p)+(x.p.aktif?'':' '+badge('Ayrıldı',''))},x.tut,x.od+(x.fz>0.004?x.fz:0),x.k>0.004?x.k:(x.fz>0.004?'+'+fmt(x.fz)+' avans':''),{h:pDurum(x.k,x.od,x.fz,x.tut)},{h:`<button type="button" class="btn sm pri" data-act="pOdePen" data-p="${x.p.id}">Öde</button>`}]));
+  const tL=D.flatMap(x=>x.L.map(y=>Object.assign({p:x.p},y))).filter(x=>goster==='hepsi'||x.k>0.004).sort((a,b)=>b.donem.localeCompare(a.donem)||a.p.ad.localeCompare(b.p.ad,'tr')||(a.tur==='bordro'?-1:1));
+  const tl=tL.length?tblA(['Dönem','Personel','Kalem','Tutar','Ödenen','Kalan','Durum'],tL.map(x=>[AYLAR[+x.donem.slice(5,7)-1]+' '+x.donem.slice(0,4),{h:pLink(x.p)},{h:(x.tur==='bordro'?badge('Resmi','blu'):badge('Bordro dışı','amb'))+' '+esc(x.acik.replace(/^Diğer: /,'').replace(/^Resmi maaş$/,'Maaş'))},x.tut,x.od,x.k>0.004?x.k:'',{h:odDurum(x.tut,x.od)}])):'';
+  return`<div data-odeme="p"><div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr))">${kp('Ödenecek toplam',money(topK),acikSay?acikSay+' personele ödeme bekliyor':'ödenecek bakiye yok',topK>0.004?'neg':'')}${kp('Avans / fazla ödeme',money(topFz),'sonraki tahakkuka düşer')}</div>
+  <div class="bar"><select data-f="personel.pf"><option value="">Tüm personel</option>${S.personel.filter(p=>p.aktif||personelAcik(p.id).length||avansBak(p.id)>0.004).map(p=>`<option value="${p.id}" ${p.id===pf?'selected':''}>${esc(p.ad)}</option>`).join('')}</select><select data-f="personel.od"><option value="acik" ${goster==='acik'?'selected':''}>Yalnız bakiyesi olanlar</option><option value="hepsi" ${goster==='hepsi'?'selected':''}>Tüm personel</option></select></div>
+  ${G.length?`<div class="bar od-bar">${odSecBar('Seçilenleri öde','pOdeSec')}</div>${tb}`:`<div class="card mut">Ödenecek personel bakiyesi yok. ✓</div>`}
+  ${tl?`<h3 style="margin:16px 0 6px">Tahakkuk durumu</h3>${tl}`:''}
+  <p class="mut">Ödeme <b>tek parça</b> kaydedilir (banka dökümüyle aynı tutar). Program ödemeyi tahakkuklara en eski dönemden başlayarak kendisi eşler; bakiyeden fazla ödeme <b>avans / fazla ödeme</b> olarak kalır ve sonraki tahakkuka otomatik düşer. Satırdaki <b>Öde</b> o personele ödeme penceresi açar (avans da buradan verilir).</p></div>`}
 /* SGK / Vergi ödemesi */
 function sgkBorclar(){const hs=S.hesaplar.filter(h=>/^36[01]\./.test(h.kod)&&!baslikMi(h.kod)&&!altlar(h.kod).length).sort((a,b)=>cmpKod(a.kod,b.kod)),out=[],fl=[...S.fisler].sort(fisSira);
   hs.forEach(h=>{const ent=[];fl.forEach(f=>f.satirlar.forEach(l=>{if(l.hesap===h.kod)ent.push({f,al:l.alacak||0,bo:l.borc||0})}));
@@ -1402,7 +1434,7 @@ function rPKart(){
 function personelEkstre(pid){const R=[];
   S.bordrolar.forEach(b=>{const s=b.satirlar.find(x=>x.pid===pid);if(s)R.push({t:b.tarih,sira:0,tur:'bordro',id:b.id,acik:'Resmi maaş '+b.donem+' (net ücret)',alacak:s.net,borc:0})});
   S.netTahakkuklar.filter(t=>t.personelId===pid).forEach(t=>R.push({t:t.tarih,sira:0,tur:'net',id:t.id,acik:'Diğer tahakkuk '+t.donem+': '+t.satirlar.map(x=>(x.ad||'Kalem')+' '+fmt(x.tutar)).join(', '),alacak:t.toplam,borc:0}));
-  S.hareketler.filter(h=>h.tur==='maas'&&h.personelId===pid).forEach(h=>{const b=h.bordroId&&S.bordrolar.find(x=>x.id===h.bordroId),n=h.netTahId&&S.netTahakkuklar.find(x=>x.id===h.netTahId),av=!!h.avans&&!b&&!n;R.push({t:h.tarih,sira:1,tur:'odeme',avans:av,id:h.id,no:h.no,acik:(av?'Avans (mahsup edilmedi)':'Ödeme → '+(b?'Resmi maaş '+b.donem:n?'Diğer tahakkuk '+n.donem:(h.aciklama||'')))+(h.avans&&(b||n)?' · avans mahsubu':'')+' · '+((kasaBul(h.kasaId)||{}).ad||'?'),alacak:0,borc:h.tutar})});
+  S.hareketler.filter(h=>h.tur==='maas'&&h.personelId===pid).forEach(h=>{const b=h.bordroId&&S.bordrolar.find(x=>x.id===h.bordroId),n=h.netTahId&&S.netTahakkuklar.find(x=>x.id===h.netTahId),av=!!h.avans&&!b&&!n;R.push({t:h.tarih,sira:1,tur:'odeme',avans:av,id:h.id,no:h.no,acik:(b||n?'Ödeme → '+(b?'Resmi maaş '+b.donem:'Diğer tahakkuk '+n.donem)+(h.aciklama?' · '+h.aciklama:''):(av?'Avans':'Ödeme')+(h.aciklama?' · '+h.aciklama:''))+' · '+((kasaBul(h.kasaId)||{}).ad||'?'),alacak:0,borc:h.tutar})});
   R.sort((a,b)=>a.t.localeCompare(b.t)||a.sira-b.sira);let run=0;R.forEach(x=>{run=r2(run+x.alacak-x.borc);x.bak=run});return R}
 function pEkstreVeri(pid){const F=UI.f.personel,d1=F.ed1||'',d2=F.ed2||'',A=personelEkstre(pid);let devir=0;
   const R=A.filter(x=>{if(d1&&x.t<d1){devir=x.bak;return false}if(d2&&x.t>d2)return false;return true});return{A,R,devir,d1,d2}}
@@ -1413,10 +1445,10 @@ function rPEkstre(pid){
   const bt={bordro:badge('Resmi bordro','blu'),net:badge('Diğer tahakkuk','amb'),odeme:badge('Ödeme','grn')};
   const act=x=>x.tur==='bordro'?`<button class="btn sm" data-act="bordroDuzenle" data-id="${x.id}">Bordroyu aç</button>`:x.tur==='net'?`<button class="btn sm" data-act="netTahDuzenle" data-id="${x.id}">Düzenle</button> <button class="btn sm red" data-act="netTahSil" data-id="${x.id}">Sil</button>`:`<button class="btn sm" data-act="maasDuzenle" data-id="${x.id}">Düzenle</button> <button class="btn sm red" data-act="maasSil" data-id="${x.id}">Sil</button>`;
   const kpi=(l,v,s='',c='')=>`<div class="card kpi"><div class="l">${l}</div><div class="v ${c}">${v}</div><div class="s">${s}</div></div>`;
-  return`<div class="card" style="padding:12px 16px;margin-bottom:12px"><div class="bar" style="margin:0;align-items:flex-end"><label class="f" style="margin:0"><span>Personel</span><select data-f="personel.ekstre">${S.personel.map(x=>`<option value="${x.id}" ${x.id===pid?'selected':''}>${esc(x.ad)}${x.aktif?'':' (ayrıldı)'}</option>`).join('')}</select></label><label class="f" style="margin:0"><span>Başlangıç</span><input type="date" data-f="personel.ed1" value="${esc(V.d1)}"></label><label class="f" style="margin:0"><span>Bitiş</span><input type="date" data-f="personel.ed2" value="${esc(V.d2)}"></label><span class="sp"></span>${kalan>0.004?`<button class="btn pri" data-act="netOde" data-p="${p.id}">Ödeme yap</button>`:''}<button class="btn" data-act="avansYeni" data-p="${p.id}">Avans ver</button><button class="btn" data-act="netTahYeni" data-p="${p.id}">+ Tahakkuk</button><button class="btn" data-act="pEkstreCsv" data-p="${p.id}">CSV indir</button></div></div>
+  return`<div class="card" style="padding:12px 16px;margin-bottom:12px"><div class="bar" style="margin:0;align-items:flex-end"><label class="f" style="margin:0"><span>Personel</span><select data-f="personel.ekstre">${S.personel.map(x=>`<option value="${x.id}" ${x.id===pid?'selected':''}>${esc(x.ad)}${x.aktif?'':' (ayrıldı)'}</option>`).join('')}</select></label><label class="f" style="margin:0"><span>Başlangıç</span><input type="date" data-f="personel.ed1" value="${esc(V.d1)}"></label><label class="f" style="margin:0"><span>Bitiş</span><input type="date" data-f="personel.ed2" value="${esc(V.d2)}"></label><span class="sp"></span><button class="btn pri" data-act="netOde" data-p="${p.id}">Ödeme yap</button><button class="btn" data-act="netTahYeni" data-p="${p.id}">+ Tahakkuk</button><button class="btn" data-act="pEkstreCsv" data-p="${p.id}">CSV indir</button></div></div>
   <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr))">${kpi(kalan<-0.004?'Avans / fazla ödeme':'Ödenecek (kalan)',money(Math.abs(kalan)),kalan<-0.004?'personelden alacak':'net bakiye',kalan>0.004?'neg':'')}${kpi('Toplam tahakkuk',money(tr+tn),'resmi '+money(tr)+' · diğer '+money(tn))}${kpi('Toplam ödenen',money(to),'avans dahil')}${kpi('Personel hesabı (335)',money(h335),p.hesap||'')}</div>
   ${tblA(['Tarih','Tür','Açıklama','Tahakkuk','Ödeme','Bakiye',''],[...(V.d1?[[ '', {h:badge('Devir','')},'Önceki dönemden devreden','','',V.devir,'']]:[]),...R.map(x=>[tTR(x.t),{h:x.avans?badge('Avans','red'):bt[x.tur]},x.acik,x.alacak||'',x.borc||'',x.bak,{h:`<span class="act">${act(x)}</span>`}])],R.length?['','','Toplam',r2(R.reduce((t,x)=>t+x.alacak,0)),r2(R.reduce((t,x)=>t+x.borc,0)),R[R.length-1].bak,'']:null)}
-  <p class="mut">Tüm tutarlar <b>net</b>dir (resmi bordro: net ücret; diğer: doğrudan net ödenen kalemler). Yanlış girilen ödemeyi satırdaki <b>Düzenle</b> ile düzeltin ya da <b>Sil</b> ile kaldırın; avans, ödeme ekranından <b>Avansı mahsup et</b> ile maaşa düşülür.</p>`}
+  <p class="mut">Tüm tutarlar <b>net</b>dir (resmi bordro: net ücret; diğer: doğrudan net ödenen kalemler). Yanlış girilen ödemeyi satırdaki <b>Düzenle</b> ile düzeltin ya da <b>Sil</b> ile kaldırın; bakiyeden fazla yapılan ödeme avans olarak kalır ve sonraki tahakkuka otomatik düşer.</p>`}
 function sgkEkstreVeri(){const F=UI.f.personel,sh=F.sh||'',d1=F.sd1||'',d2=F.sd2||'';
   const hs=S.hesaplar.filter(h=>/^36[01]\./.test(h.kod)&&!baslikMi(h.kod)&&!altlar(h.kod).length).sort((a,b)=>cmpKod(a.kod,b.kod));
   const ok=k=>sh?(sh.length<=3?k.startsWith(sh+'.'):k===sh):true;const A=[];
@@ -1444,16 +1476,10 @@ ACT.sgkOdemeDuzenle=el=>{const h=S.hareketler.find(x=>x.id===el.dataset.id);if(!
   modal({title:'SGK / Vergi ödemesini düzenle – '+(h.no||''),calc:'sgkod',html:`<div class="fg">${inp('Tarih','tarih',h.tarih,'type="date" required')}${sel('Ödenen borç hesabı','hesap',hs.map(x=>({v:x.kod,t:x.kod+' '+x.ad})),h.hesap)}${sel('Ödeme hesabı','kasaId',kasaOpts(['kasa','banka']),h.kasaId)}${inp('Ödenen tutar (bankadan çıkan)','tutar',h.tutar,'type="number" step="0.01" min="0" required')}${inp('İndirim (ödenmeden borçtan düşülen)','indirim',f0>0?f0:'','type="number" step="0.01" min="0" placeholder="0"')}${inp('Gecikme zammı / ek ödeme (borç dışı kısım)','ek',f0<0?-f0:'','type="number" step="0.01" min="0" placeholder="0"')}${sel('İndirim hesabı (gelir)','indirimHesap',fs,f0>0&&h.farkHesap?h.farkHesap:fs[0].v)}${sel('Ek ödeme hesabı (gider)','ekHesap',ekSecenek(),f0<0&&h.farkHesap?h.farkHesap:ekVarsayilan())}${inp('Açıklama','aciklama',h.aciklama||'')}</div><p id="skap" class="mut"></p><p class="mut">Ödenen tutar borcu aynı tutarda kapatır. İndirim ve ek ödeme alanlarını yalnızca gerekirse doldurun; ikisi birlikte girilemez.</p>`,
    ok:f=>tx(()=>{const od=num(f,'tutar'),i=num(f,'indirim'),e=num(f,'ek');if(!(od>0))throw new Error('Tutar girin');if(i>0&&e>0)throw new Error('İndirim ve ek ödeme birlikte girilemez');if(e>od)throw new Error('Ek ödeme, ödenen tutardan fazla olamaz');const fark=r2(i-e);let fh=fark>0?val(f,'indirimHesap'):val(f,'ekHesap');if(fark>0&&fh==='__tesvik__')fh=tesvikHesap();
      _hareketKaydet(Object.assign({},h,{tarih:val(f,'tarih'),hesap:val(f,'hesap'),kasaId:val(f,'kasaId'),tutar:od,fark,farkHesap:fark?fh:'',aciklama:val(f,'aciklama')}))})})};
-ACT.avansYeni=el=>{const ps=S.personel.filter(p=>p.aktif);if(!ps.length)return toast('Önce personel ekleyin.','err');const p0=el&&el.dataset&&el.dataset.p||ps[0].id;
-  modal({title:'Personel avansı',html:`${pBankaNot()}<div class="note">Avans, maaştan önce verilen ödemedir: personel hesabına borç yazılır, bakiye personelden alacak olur. Maaş günü <b>Ödemeler › Personel ödemesi</b> ekranında <b>Avansı mahsup et</b> ile ilgili maaşa/tahakkuka düşersiniz.</div><div class="fg">${sel('Personel','personelId',ps.map(p=>({v:p.id,t:p.ad})),p0)}${inp('Tarih','tarih',bugun(),'type="date" required')}${sel('Ödeme hesabı','kasaId',kasaOpts(['kasa','banka']),pVarKasa())}${inp('Tutar','tutar','','type="number" step="0.01" min="0" required')}${inp('Açıklama','aciklama','')}</div>`,
-   ok:f=>tx(()=>{if(!val(f,'kasaId'))throw new Error('Ödeme hesabı seçin');_hareketKaydet({tur:'maas',avans:true,tarih:val(f,'tarih'),kasaId:val(f,'kasaId'),personelId:val(f,'personelId'),tutar:num(f,'tutar'),aciklama:val(f,'aciklama')})})})};
-ACT.avansMahsup=el=>{const pid=el.dataset.p;const av=S.hareketler.filter(h=>h.tur==='maas'&&h.personelId===pid&&h.avans&&!h.bordroId&&!h.netTahId).sort((a,b)=>a.tarih.localeCompare(b.tarih));const acik=personelAcik(pid);if(!av.length||!acik.length)return toast('Mahsup edilecek avans ya da açık tahakkuk yok.');let top=0;
-  if(tx(()=>{acik.forEach(it=>{let need=it.k;while(need>0.004&&av.length){const a=av[0],ac=(a.aciklama?a.aciklama+' · ':'')+'avans mahsubu '+it.donem;
-    if(a.tutar<=need+0.004){if(it.tur==='bordro')a.bordroId=it.id;else a.netTahId=it.id;a.aciklama=ac;_hareketKaydet(a);need=r2(need-a.tutar);top=r2(top+a.tutar);av.shift()}
-    else{const y=Object.assign({},a,{id:uid(),no:'',tutar:need,aciklama:ac});delete y.no;if(it.tur==='bordro')y.bordroId=it.id;else y.netTahId=it.id;a.tutar=r2(a.tutar-need);_hareketKaydet(a);_hareketKaydet(y);top=r2(top+need);need=0}}})},true))toast(fmt(top)+' ₺ avans mahsup edildi')};
+ACT.avansYeni=el=>{const ps=S.personel.filter(p=>p.aktif);if(!ps.length)return toast('Önce personel ekleyin.','err');pOdemeAc([el&&el.dataset&&el.dataset.p||ps[0].id])};
 ACT.maasDuzenle=el=>{const h=S.hareketler.find(x=>x.id===el.dataset.id);if(!h)return;const p=S.personel.find(x=>x.id===h.personelId)||{ad:'?'},b=h.bordroId&&S.bordrolar.find(x=>x.id===h.bordroId),n=h.netTahId&&S.netTahakkuklar.find(x=>x.id===h.netTahId);
   const toplam=b?((b.satirlar.find(s=>s.pid===h.personelId)||{}).net||0):n?n.toplam:Infinity,diger=b?r2(maasOdenen(b.id,h.personelId)-h.tutar):n?r2(netOdenen(n.id)-h.tutar):0,azami=r2(toplam-diger);
-  modal({title:'Ödemeyi düzenle – '+p.ad,html:`<div class="fg">${inp('Ödeme tarihi','tarih',h.tarih,'type="date" required')}${sel('Ödeme hesabı','kasaId',kasaOpts(['kasa','banka']),h.kasaId)}${inp('Tutar','tutar',h.tutar,'type="number" step="0.01" min="0" required')}${inp('Açıklama','aciklama',h.aciklama||'')}</div><p class="mut">Bağlı kalem: ${b?'Resmi bordro '+b.donem:n?'Diğer tahakkuk '+n.donem:'—'}${isFinite(azami)?' · bu ödeme en çok <b>'+fmt(azami)+'</b> olabilir':''}</p>`,
+  modal({title:'Ödemeyi düzenle – '+p.ad,html:`<div class="fg">${inp('Ödeme tarihi','tarih',h.tarih,'type="date" required')}${sel('Ödeme hesabı','kasaId',kasaOpts(['kasa','banka']),h.kasaId)}${inp('Tutar','tutar',h.tutar,'type="number" step="0.01" min="0" required')}${inp('Açıklama','aciklama',h.aciklama||'')}</div><p class="mut">${b||n?'Bağlı kalem: '+(b?'Resmi bordro '+b.donem:'Diğer tahakkuk '+n.donem)+(isFinite(azami)?' · bu ödeme en çok <b>'+fmt(azami)+'</b> olabilir':''):'Serbest ödeme: tahakkuklara en eski dönemden başlayarak otomatik eşlenir; bakiyeden fazlası avans olarak kalır.'}</p>`,
    ok:f=>tx(()=>{const t=num(f,'tutar');if(!(t>0))throw new Error('Tutar girin');if(t>azami+0.004)throw new Error('Tutar, kalemin kalan borcunu aşıyor (en çok '+fmt(azami)+')');if(!val(f,'kasaId'))throw new Error('Ödeme hesabı seçin');_hareketKaydet(Object.assign({},h,{tarih:val(f,'tarih'),kasaId:val(f,'kasaId'),tutar:t,aciklama:val(f,'aciklama')}))})})};
 ACT.maasSil=el=>{const h=S.hareketler.find(x=>x.id===el.dataset.id);if(!h)return;if(confirm('Bu ödeme ('+tTR(h.tarih)+', '+fmt(h.tutar)+' ₺) silinsin mi? Kalem yeniden "ödenecek" durumuna döner.'))tx(()=>hareketSil(h.id))};
 const ekSeg=a=>`<div class="seg"><a class="${a==='p'?'on':''}" data-act="pTab" data-t="pekstre">Personel ekstresi</a><a class="${a==='s'?'on':''}" data-act="sgkEkstre">SGK / Vergi ekstresi</a></div>`;
@@ -1462,7 +1488,7 @@ function rPersonel(){
   if(F.tab==='pekstre'&&!S.personel.some(p=>p.id===F.ekstre))F.ekstre=(S.personel.find(p=>p.aktif)||S.personel[0]||{}).id||'';
   const on=(k,a)=>F.tab===k&&(k!=='odeme'||(F.alt==='sgk'?'sgk':'p')===a);
   const tab=(k,t)=>`<a class="${on(k)?'on':''}" data-act="pTab" data-t="${k}">${t}</a>`;
-  const tabs=`<div class="ptop"><span class="sp"></span><button class="btn ${F.tab==='personel'?'pri':''}" data-act="pTab" data-t="personel">☷ Personel kartları (${S.personel.length})</button></div><div class="pnav"><div class="tabs"><span class="tl">İşlem</span><a data-act="bordroYeni">+ Bordro oluştur</a><a data-act="netTahYeni">+ Tahakkuk ekle</a><a class="${F.tab==='odeme'?'on':''}" data-act="netOde">Ödeme yap</a><a data-act="avansYeni">Avans ver</a></div>
+  const tabs=`<div class="ptop"><span class="sp"></span><button class="btn ${F.tab==='personel'?'pri':''}" data-act="pTab" data-t="personel">☷ Personel kartları (${S.personel.length})</button></div><div class="pnav"><div class="tabs"><span class="tl">İşlem</span><a data-act="bordroYeni">+ Bordro oluştur</a><a data-act="netTahYeni">+ Tahakkuk ekle</a><a class="${F.tab==='odeme'?'on':''}" data-act="netOde">Ödeme yap</a></div>
   <div class="tabs"><span class="tl">Görüntüle</span>${tab('ozet','Özet')}${tab('bordro','Bordrolar')}${tab('tahakkuk','Tahakkuklar')}<a class="${F.tab==='pekstre'||F.tab==='sekstre'?'on':''}" data-act="pTab" data-t="pekstre">Ekstre</a></div></div>`;
   if(F.tab==='pekstre')return tabs+ekSeg('p')+(F.ekstre?rPEkstre(F.ekstre):'<div class="card mut">Önce personel ekleyin.</div>');
   return tabs+(F.tab==='sekstre'?ekSeg('s')+rSgkEkstre():F.tab==='bordro'?rBordroTab():F.tab==='tahakkuk'?rTahak():F.tab==='odeme'?rOdeme():F.tab==='personel'?rPKart():rPOzet())}
