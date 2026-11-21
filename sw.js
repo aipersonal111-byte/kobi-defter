@@ -1,13 +1,12 @@
-/* Kobi Defter servis çalışanı. Her yayında SURUM'u değiştirin (version.json ile aynı). */
-const SURUM='3.4';
-const KAP='kobi-defter-'+SURUM;
-const DOSYALAR=['./','index.html','manifest.webmanifest','icon-192.png','icon-512.png','icon-maskable-512.png'];
-self.addEventListener('install',e=>{e.waitUntil(caches.open(KAP).then(c=>Promise.all(DOSYALAR.map(u=>fetch(new Request(u,{cache:'reload'})).then(r=>{if(!r.ok)throw new Error(u);return c.put(u,r)})))))});
-self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(k=>Promise.all(k.filter(x=>x.startsWith('kobi-defter-')&&x!==KAP).map(x=>caches.delete(x)))).then(()=>self.clients.claim()))});
-self.addEventListener('message',e=>{if(e.data&&e.data.t==='SKIP')self.skipWaiting()});
-self.addEventListener('fetch',e=>{const r=e.request,u=new URL(r.url);
-  if(r.method!=='GET'||u.origin!==location.origin||u.pathname.endsWith('/version.json'))return;
-  e.respondWith(caches.open(KAP).then(async c=>{
-    let m=await c.match(r,{ignoreSearch:true});
-    if(!m&&r.mode==='navigate')m=await c.match('index.html');
-    return m||fetch(r)}))});
+'use strict';
+// Stok Portal servis çalışanı: uygulamayı çevrimdışı açılabilir yapar ve Chrome'da "Yükle" düğmesini sağlar.
+// Strateji: önce ağ (güncel sürüm), ağ yoksa önbellek. Böylece yeni sürüm yayınlanınca ilk açılışta gelir.
+const ONBELLEK = 'stok-portal-v1';
+const TEMEL = ['./', 'index.html', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png'];
+self.addEventListener('install', e => { e.waitUntil(caches.open(ONBELLEK).then(c => c.addAll(TEMEL)).then(() => self.skipWaiting())); });
+self.addEventListener('activate', e => { e.waitUntil(caches.keys().then(l => Promise.all(l.filter(k => k !== ONBELLEK).map(k => caches.delete(k)))).then(() => self.clients.claim())); });
+self.addEventListener('fetch', e => {
+  const r = e.request; if (r.method !== 'GET' || new URL(r.url).origin !== location.origin) return;
+  e.respondWith(fetch(r, { cache: 'no-store' }).then(res => { if (res && res.ok) { const k = res.clone(); caches.open(ONBELLEK).then(c => c.put(r, k)); } return res; })
+    .catch(() => caches.match(r, { ignoreSearch: true }).then(m => m || caches.match('index.html'))));
+});

@@ -1,0 +1,14 @@
+{
+  "name": "stok-portal",
+  "version": "3.2.0",
+  "private": true,
+  "description": "Tek dosyalık, çevrimdışı stok takip uygulaması (gelen / giden / kalan, üretim, takribi maliyet ve kâr, kullanıcı rolleri, günlük, otomatik yedek)",
+  "scripts": {
+    "build": "node build.js",
+    "check": "node build.js --check",
+    "test": "node tests/test_motor.js && node tests/test_kimlik.js && node tests/test_ui.js && node tests/test_depo.js && node tests/test_yedek.js && node tests/test_roller.js && node tests/test_aktar.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
